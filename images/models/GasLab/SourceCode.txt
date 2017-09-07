@@ -1,0 +1,1016 @@
+extensions [sound soundx midi]
+
+globals [
+  was-reset
+  tick-delta                                 ;; how much we advance the tick counter this time through
+  max-tick-delta                             ;; the largest tick-delta is allowed to be
+  box-edge                                   ;; distance of box edge from axes
+  init-avg-speed init-avg-energy             ;; initial averages
+  avg-speed avg-energy                       ;; current averages
+  outside-energy temperature-delta           ;; used for cooling/heating the walls of the box
+  fast medium slow                           ;; current counts
+  percent-slow percent-medium percent-fast   ;; percentage of current counts
+  instant-pressure                           ;; the pressure at this tick or instant in time
+  pressure-history                           ;; a history of the four instant-pressure values
+  pressure                                   ;; the pressure average of the pressure-history (for curve smoothing in the pressure plots)
+  temperature                                ;; the temperature in the box
+  zero-pressure-count                        ;; how many zero entries are in pressure-history
+  max-speed max-temperature                  ;; maximal speed / temperature achieved since last setup
+
+  ;; constants for soundx extension
+  current-folder                             ;; the path to the current folder of the model
+  dash-particle-sound-file                   ;; the name of the sound file to be played when dashing a particle
+  particle-collision-sound-file              ;; the name of the sound file to be played on a collision between an electron and an atom
+  box-collision-sound-file                   ;; the name of the sound file to be played when particles collide with the box
+  out-of-range-sound-file                    ;; the name of the sound file to be played when an increase/decrease button is pressed while the slider is at its limit
+  center-crossing-sound-file                 ;; the name of the sound file to be played when a window passes a central axis (vertical or horizontal) of the world
+  expanded-boundaries-sound-file             ;; the name of the sound file to be played when boundaries are auto-corrected
+
+  prev-fast prev-medium prev-slow
+
+  pressure-now
+  max-pressure-history
+  length-horizontal-surface length-vertical-surface
+  note-volume
+
+  ;; sliders' maximal & minimal values
+  min-number-of-particles max-number-of-particles
+  min-particles-to-add    max-particles-to-add
+  min-init-particle-speed max-init-particle-speed
+  min-particle-mass       max-particle-mass
+  min-box-size            max-box-size
+  min-dash-stride         max-dash-stride
+  min-window-radius       max-window-radius
+  min-window-stride       max-window-stride
+
+  window-center-x window-center-y
+  box-color
+
+  old-pressure?
+  old-sonify-temperature?
+  old-sonify-all-speeds?
+  old-count-fast?
+  old-count-medium?
+  old-count-slow?
+  old-dash-particle?
+  old-particle-collisions?
+  old-single-particle-wall-collisions?
+  old-wall-collisions?
+  old-energy-window?
+  prev-pressure
+  prev-temperature
+  prev-max-pressure
+  prev-max-temperature
+
+  sonification-temperature-history
+  sonification-pressure-history
+  sonification-count-fast-history
+  sonification-count-medium-history
+  sonification-count-slow-history
+  sonification-energy-window-history
+]
+
+breed [ particles particle ]
+breed [ flashes flash ]
+flashes-own [birthday]
+
+particles-own
+[
+  speed mass energy          ;; particle info
+  last-collision
+  momentum-difference        ;; used to calculate pressure from wall hits
+  momentum-instant
+  moved
+  max-momentum-difference
+]
+
+
+to setup
+  let bk-was-reset was-reset
+  let bk-energy outside-energy
+  clear-all
+  set outside-energy bk-energy
+  init-constants
+  ifelse reset-on-setup? or bk-was-reset = 0
+  [ init-variables ]
+  [ reset-old-flags ]
+  set was-reset 1
+  init-sounds
+  set max-tick-delta 0.1073
+  ;; the box size is determined by the slider
+  set box-edge (round (max-pxcor * box-size / 100))
+  set length-horizontal-surface  ( 2 * (box-edge - 1) + 1)
+  set length-vertical-surface  ( 2 * (box-edge - 1) + 1)
+  make-box box-color
+  make-particles
+  update-variables
+  set init-avg-speed avg-speed
+  set init-avg-energy avg-energy
+  set pressure-history [0 0 0 0 0]
+  set max-pressure-history [0 0 0 0 0]
+  reset-ticks
+end
+
+to init-constants
+  set-default-shape particles "circle"
+  set-default-shape flashes "plane"
+  set max-speed 0
+  set max-temperature 0
+  set temperature-delta 10
+  set note-volume 0.7
+
+  set min-number-of-particles 1
+  set max-number-of-particles 1000
+  set min-particles-to-add 0
+  set max-particles-to-add 100
+  set min-init-particle-speed 1
+  set max-init-particle-speed 20
+  set min-particle-mass 1
+  set max-particle-mass 20
+  set min-box-size 5
+  set max-box-size 100
+  set min-dash-stride 5
+  set max-dash-stride 100
+  set min-window-radius 0
+  set max-window-radius 20
+  set min-window-stride 1
+  set max-window-stride 20
+
+  set sonification-temperature-history []
+  set sonification-pressure-history []
+  set sonification-count-fast-history []
+  set sonification-count-medium-history []
+  set sonification-count-slow-history []
+  set sonification-energy-window-history []
+
+  ; constants for soundx files to be used in the module
+  set current-folder word soundx:CURRENT-DIR "/"
+  set particle-collision-sound-file word current-folder "billiard1.wav"
+  set box-collision-sound-file word current-folder "Navajo_drum_short.wav"
+  set dash-particle-sound-file word current-folder "telephone1.wav"
+  set out-of-range-sound-file word current-folder "Navajo_drum_short.wav"
+  set center-crossing-sound-file word current-folder "telephone1.wav"
+  set expanded-boundaries-sound-file word current-folder "pop.wav"
+end
+
+to init-variables
+  set box-color yellow
+  set outside-energy 0
+  set sonify-pressure? false
+  set sonify-temperature? false
+  set sonify-all-speeds? false
+  set sonify-fast? false
+  set sonify-medium? false
+  set sonify-slow? false
+  set dash-particle? false
+  set particle-collisions? false
+  set single-particle-wall-collisions? false
+  set wall-collisions? false
+  set energy-window? false
+  set heat-walls? false
+  set sonify-all-speeds? false
+  set prev-fast 0
+  set prev-medium 0
+  set prev-slow 0
+  set prev-pressure 0
+  set prev-temperature 0
+  set prev-max-pressure 0
+  set prev-max-temperature 0
+
+  update-old-flags
+end
+
+to reset-old-flags
+  set old-pressure? false
+  set old-sonify-temperature? false
+  set old-sonify-all-speeds? false
+  set old-count-fast? false
+  set old-count-medium? false
+  set old-count-slow? false
+  set old-dash-particle? false
+  set old-particle-collisions? false
+  set old-single-particle-wall-collisions? false
+  set old-wall-collisions? false
+  set old-energy-window? false
+  set box-color scale-color red outside-energy 0 30
+end
+
+to init-sounds
+  midi:conductor.stop
+  midi:all.notes.off 1
+  midi:all.notes.off 2
+  midi:all.notes.off 3
+  midi:all.notes.off 4
+  midi:all.notes.off 5
+  midi:all.notes.off 6
+
+  midi:conductor.clear.sheets
+  midi:conductor.setplaymode.endless
+
+  midi:instrument 1 pressure-audiograph-instrument + 1
+  midi:instrument 2 temperature-audiograph-instrument + 1
+  midi:instrument 3 count-fast-audiograph-instrument + 1
+  midi:instrument 4 count-average-audiograph-instrument + 1
+  midi:instrument 5 count-slow-audiograph-instrument + 1
+  midi:instrument 6 window-sonification-instrument + 1
+end
+
+to update-variables
+  set medium count particles with [color = green]
+  set slow   count particles with [color = blue]
+  set fast   count particles with [color = red]
+  set percent-medium (medium / ( count particles )) * 100
+  set percent-slow (slow / (count particles)) * 100
+  set percent-fast (fast / (count particles)) * 100
+  set avg-speed  mean [speed] of particles
+  set avg-energy mean [energy] of particles
+  set temperature (avg-energy * 6)
+  if temperature > max-temperature [ set max-temperature temperature ]
+end
+
+to update-old-flags
+  set old-pressure? sonify-pressure?
+  set old-count-fast? sonify-fast?
+  set old-count-medium? sonify-medium?
+  set old-count-slow? sonify-slow?
+  set old-dash-particle? dash-particle?
+  set old-particle-collisions? particle-collisions?
+  set old-single-particle-wall-collisions? single-particle-wall-collisions?
+  set old-wall-collisions? wall-collisions?
+  set old-energy-window? energy-window?
+  set old-sonify-all-speeds? sonify-all-speeds?
+  set old-sonify-temperature? sonify-temperature?
+end
+
+to go
+  ask particles [ bounce ]
+  ask particles [ move ]
+  ask particles
+  [ if collide? [ check-for-collision ] ]
+  ifelse (trace?)
+    [ ask particle 0 [ pen-down ] ]
+    [ ask particle 0 [ pen-up ] ]
+  tick-advance tick-delta
+  if floor ticks > floor (ticks - tick-delta)
+  [
+    update-variables
+    update-plots
+    calculate-pressure
+
+    sonify-model
+  ]
+  calculate-tick-delta
+
+  ask flashes with [ticks - birthday > 0.4] [ die ]
+  display
+end
+
+to sonify-model
+  let sonification-current-flags []
+  set sonification-current-flags ( lput sonify-pressure? sonification-current-flags )
+  set sonification-current-flags ( lput sonify-temperature? sonification-current-flags )
+  set sonification-current-flags ( lput sonify-fast? sonification-current-flags )
+  set sonification-current-flags ( lput sonify-medium? sonification-current-flags )
+  set sonification-current-flags ( lput sonify-slow? sonification-current-flags )
+  set sonification-current-flags ( lput energy-window? sonification-current-flags )
+  let active-audiographs ( count-active-audiographs sonification-current-flags )
+  let current-active 0
+
+  ; sonification of pressure plot
+  if sonify-all-speeds? != old-sonify-all-speeds?
+  [
+    set sonify-fast? sonify-all-speeds?
+    set sonify-medium? sonify-all-speeds?
+    set sonify-slow? sonify-all-speeds?
+  ]
+
+  if old-particle-collisions? != particle-collisions? [ follow-turtle 0 (particle-collisions? and not old-particle-collisions?) (not particle-collisions? and old-particle-collisions? and not dash-particle? and not single-particle-wall-collisions?) ]
+
+  if old-dash-particle? != dash-particle? [ follow-turtle 0 (dash-particle? and not old-dash-particle?) (not dash-particle? and old-dash-particle? and not particle-collisions? and not single-particle-wall-collisions?) ]
+
+  if old-single-particle-wall-collisions? != single-particle-wall-collisions? [ follow-turtle 0 (single-particle-wall-collisions? and not old-single-particle-wall-collisions?) (not single-particle-wall-collisions? and old-single-particle-wall-collisions? and not dash-particle? and not particle-collisions?) ]
+
+  if old-pressure? != sonify-pressure? [ toggle-audiograph-sonification sonify-pressure? 1 pressure-audiograph-note (mean pressure-history) 0 (mean max-pressure-history) ]
+  if sonify-pressure? [
+    ifelse length sonification-pressure-history < history-size
+    [ set sonification-pressure-history lput (mean pressure-history) sonification-pressure-history ]
+    [ set sonification-pressure-history but-first lput (mean pressure-history) sonification-pressure-history ]
+
+    if auto-correct-unbound-values? and (mean max-pressure-history) != 0 and prev-max-pressure != 0 [
+      if (prev-pressure != (mean pressure-history)) and ((prev-pressure / prev-max-pressure) = ((mean pressure-history) / mean max-pressure-history)) [
+        set max-pressure-history (replace-item (length max-pressure-history - 1) max-pressure-history (1.1 * (item (length max-pressure-history - 1) max-pressure-history)))
+        sonify-event expanded-boundaries-sound-file 0.5 0
+      ]
+    ]
+    adjust-audiograph-sonification 1 (mean pressure-history)  0 (mean max-pressure-history) sonification-pressure-history
+    set prev-pressure (mean pressure-history)
+    set prev-max-pressure (mean max-pressure-history)
+
+    set prev-pressure mean pressure-history
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 1 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 1 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  if old-sonify-temperature? != sonify-temperature? [ toggle-audiograph-sonification sonify-temperature? 2 temperature-audiograph-note temperature 0 max-temperature ]
+  if sonify-temperature? [
+    ifelse length sonification-temperature-history < history-size
+    [ set sonification-temperature-history lput temperature sonification-temperature-history ]
+    [ set sonification-temperature-history but-first lput temperature sonification-temperature-history ]
+
+
+    if auto-correct-unbound-values? and max-temperature != 0 and prev-max-temperature != 0 [
+      if (prev-temperature != temperature) and ((prev-temperature / prev-max-temperature) = (temperature / max-temperature)) [
+        set max-temperature (1.1 * max-temperature)
+        sonify-event expanded-boundaries-sound-file 0.5 0
+      ]
+    ]
+    adjust-audiograph-sonification 2 temperature  0 max-temperature sonification-temperature-history
+    set prev-temperature temperature
+    set prev-max-temperature max-temperature
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 2 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 2 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  if old-count-fast? != sonify-fast? [ toggle-audiograph-sonification sonify-fast? 3 count-fast-audiograph-note (fast / count turtles) 0 1 ]
+  if sonify-fast? [
+    ifelse length sonification-count-fast-history < history-size
+    [ set sonification-count-fast-history lput (fast / count turtles) sonification-count-fast-history ]
+    [ set sonification-count-fast-history but-first lput (fast / count turtles) sonification-count-fast-history ]
+
+    adjust-audiograph-sonification 3 (fast / count turtles) 0 1 sonification-count-fast-history
+
+    ifelse (fast / count turtles) = 0
+    [
+      if stop-count-on-zero-value?
+      [
+        ifelse auto-resume-count?
+        [ midi:volume 3 0 ]
+        [
+          set sonify-fast? false
+          midi:all.notes.off 3
+        ]
+      ]
+    ]
+    [ if auto-resume-count? [ midi:volume 3 note-volume ] ]
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 3 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 3 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  if old-count-medium? != sonify-medium? [ toggle-audiograph-sonification sonify-medium? 4 count-average-audiograph-note (medium / count turtles) 0 1 ]
+  if sonify-medium? [
+    ifelse length sonification-count-medium-history < history-size
+    [ set sonification-count-medium-history lput (medium / count turtles) sonification-count-medium-history ]
+    [ set sonification-count-medium-history but-first lput (medium / count turtles) sonification-count-medium-history ]
+
+    adjust-audiograph-sonification 4 (medium / count turtles) 0 1 sonification-count-medium-history
+
+    ifelse (medium / count turtles) = 0
+    [
+      if stop-count-on-zero-value?
+      [
+        ifelse auto-resume-count?
+        [ midi:volume 4 0 ]
+        [
+          set sonify-medium? false
+          midi:all.notes.off 4
+        ]
+      ]
+    ]
+    [ if auto-resume-count? [ midi:volume 4 note-volume ] ]
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 4 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 4 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  if old-count-slow? != sonify-slow? [ toggle-audiograph-sonification sonify-slow? 5 count-slow-audiograph-note (slow / count turtles) 0 1 ]
+  if sonify-slow? [
+    ifelse length sonification-count-slow-history < history-size
+    [ set sonification-count-slow-history lput (slow / count turtles) sonification-count-slow-history ]
+    [ set sonification-count-slow-history but-first lput (slow / count turtles) sonification-count-slow-history ]
+
+    adjust-audiograph-sonification 5 (slow / count turtles) 0 1 sonification-count-slow-history
+
+    ifelse (slow / count turtles) = 0
+    [
+      if stop-count-on-zero-value?
+      [
+        ifelse auto-resume-count?
+        [ midi:volume 5 0 ]
+        [
+          set sonify-slow? false
+          midi:all.notes.off 5
+        ]
+      ]
+    ]
+    [ if auto-resume-count? [ midi:volume 5 note-volume ] ]
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 5 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 5 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  if energy-window? or old-energy-window? [
+    toggle-window energy-window? old-energy-window?
+    if energy-window? [
+      ifelse length sonification-energy-window-history < history-size
+      [ set sonification-energy-window-history lput calculate-window-energy sonification-energy-window-history ]
+      [ set sonification-energy-window-history but-first lput calculate-window-energy sonification-energy-window-history ]
+    ]
+    sonify-window energy-window? old-energy-window? 6 window-sonification-note calculate-window-energy 0 1 sonification-energy-window-history
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 6 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 6 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  update-old-flags
+end
+
+to stop-sonification
+  set sonify-all-speeds? false
+  set sonify-fast? false
+  set sonify-medium? false
+  set sonify-slow? false
+  set sonify-all-speeds? false
+  set sonify-pressure? false
+  set sonify-temperature? false
+  set dash-particle? false
+  set particle-collisions? false
+  set wall-collisions? false
+  set single-particle-wall-collisions? false
+  set energy-window? false
+
+  sonify-model
+  go
+end
+
+to calculate-tick-delta
+  ;; tick-delta is calculated in such way that even the fastest
+  ;; particle will jump at most 1 patch length when we advance the
+  ;; tick counter. As particles jump (speed * tick-delta) each time, making
+  ;; tick-delta the inverse of the speed of the fastest particle
+  ;; (1/max speed) assures that. Having each particle advance at most
+  ;; one patch-length is necessary for it not to "jump over" a wall
+  ;; or another particle.
+  ifelse any? particles with [speed > 0]
+    [ set tick-delta min list (1 / (ceiling max [speed] of particles)) max-tick-delta ]
+    [ set tick-delta max-tick-delta ]
+end
+
+to bounce  ;; particle procedure
+  ;; get the coordinates of the patch we'll be on if we go forward 1
+  let new-patch patch-ahead 1
+  let new-px [pxcor] of new-patch
+  let new-py [pycor] of new-patch
+  ;; if we're not about to hit a wall, we don't need to do any further checks
+  if (abs new-px != box-edge and abs new-py != box-edge)
+    [ stop ]
+  ;; if hitting left or right wall, reflect heading around x axis
+  if (abs new-px = box-edge)
+  [
+    set heading (- heading)
+    set momentum-instant  (abs (sin heading * 2 * mass * speed) / length-vertical-surface)
+    set momentum-difference momentum-difference + momentum-instant
+    set max-momentum-difference max-momentum-difference + ((2 * mass * max-speed) / length-vertical-surface)
+  ]
+  ;; if hitting top or bottom wall, reflect heading around y axis
+  if (abs new-py = box-edge)
+  [
+    set heading (180 - heading)
+    set momentum-instant  (abs (cos heading * 2 * mass * speed) / length-horizontal-surface)
+    set momentum-difference momentum-difference + momentum-instant
+    set max-momentum-difference max-momentum-difference + ((2 * mass * max-speed) / length-horizontal-surface)
+  ]
+
+  if heat-walls? and ( [heated-wall?] of patch new-px new-py ) ;; check if the patch ahead of us is heated
+  [
+    set energy ((energy + outside-energy ) / 2)
+    set speed sqrt (2 * energy / mass )
+    if speed > max-speed [ set max-speed speed ]
+    recolor
+  ]
+
+  if wall-collisions? or (single-particle-wall-collisions? and who = 0) [ make-box-collision-sound ]
+
+  ask patch new-px new-py
+  [ sprout-flashes 1 [
+      set color pcolor - 2
+      set birthday ticks
+      set heading 0
+    ]
+  ]
+end
+
+to move  ;; particle procedure
+  if patch-ahead (speed * tick-delta) != patch-here
+    [ set last-collision nobody ]
+  jump (speed * tick-delta)
+  set moved (moved + (speed * tick-delta))
+  if dash-particle? and floor moved / dash-stride  > 1
+  [
+    if who = 0 [ make-dash-particle-sound ]
+    set moved (moved mod dash-stride)
+  ]
+end
+
+to check-for-collision  ;; particle procedure
+  ;; Here we impose a rule that collisions only take place when there
+  ;; are exactly two particles per patch.  We do this because when the
+  ;; student introduces new particles from the side, we want them to
+  ;; form a uniform wavefront.
+  ;;
+  ;; Why do we want a uniform wavefront?  Because it is actually more
+  ;; realistic.  (And also because the curriculum uses the uniform
+  ;; wavefront to help teach the relationship between particle collisions,
+  ;; wall hits, and pressure.)
+  ;;
+  ;; Why is it realistic to assume a uniform wavefront?  Because in reality,
+  ;; whether a collision takes place would depend on the actual headings
+  ;; of the particles, not merely on their proximity.  Since the particles
+  ;; in the wavefront have identical speeds and near-identical headings,
+  ;; in reality they would not collide.  So even though the two-particles
+  ;; rule is not itself realistic, it produces a realistic result.  Also,
+  ;; unless the number of particles is extremely large, it is very rare
+  ;; for three or more particles to land on the same patch (for example,
+  ;; with 400 particles it happens less than 1% of the time).  So imposing
+  ;; this additional rule should have only a negligible effect on the
+  ;; aggregate behavior of the system.
+  ;;
+  ;; Why does this rule produce a uniform wavefront?  The particles all
+  ;; start out on the same patch, which means that without the only-two
+  ;; rule, they would all start colliding with each other immediately,
+  ;; resulting in much random variation of speeds and headings.  With
+  ;; the only-two rule, they are prevented from colliding with each other
+  ;; until they have spread out a lot.  (And in fact, if you observe
+  ;; the wavefront closely, you will see that it is not completely smooth,
+  ;; because some collisions eventually do start occurring when it thins out while fanning.)
+
+  if count other particles-here = 1
+  [
+    ;; the following conditions are imposed on collision candidates:
+    ;;   1. they must have a lower who number than my own, because collision
+    ;;      code is asymmetrical: it must always happen from the point of view
+    ;;      of just one particle.
+    ;;   2. they must not be the same particle that we last collided with on
+    ;;      this patch, so that we have a chance to leave the patch after we've
+    ;;      collided with someone.
+    let candidate one-of other particles-here with
+      [who < [who] of myself and myself != last-collision]
+    ;; we also only collide if one of us has non-zero speed. It's useless
+    ;; (and incorrect, actually) for two particles with zero speed to collide.
+    if (candidate != nobody) and (speed > 0 or [speed] of candidate > 0)
+    [
+      collide-with candidate
+      set last-collision candidate
+      ask candidate [ set last-collision myself ]
+
+      if particle-collisions? = true and [who] of candidate = 0 [ make-particle-collision-sound ]
+    ]
+  ]
+end
+
+;; implements a collision with another particle.
+;;
+;; THIS IS THE HEART OF THE PARTICLE SIMULATION, AND YOU ARE STRONGLY ADVISED
+;; NOT TO CHANGE IT UNLESS YOU REALLY UNDERSTAND WHAT YOU'RE DOING!
+;;
+;; The two particles colliding are self and other-particle, and while the
+;; collision is performed from the point of view of self, both particles are
+;; modified to reflect its effects. This is somewhat complicated, so I'll
+;; give a general outline here:
+;;   1. Do initial setup, and determine the heading between particle centers
+;;      (call it theta).
+;;   2. Convert the representation of the velocity of each particle from
+;;      speed/heading to a theta-based vector whose first component is the
+;;      particle's speed along theta, and whose second component is the speed
+;;      perpendicular to theta.
+;;   3. Modify the velocity vectors to reflect the effects of the collision.
+;;      This involves:
+;;        a. computing the velocity of the center of mass of the whole system
+;;           along direction theta
+;;        b. updating the along-theta components of the two velocity vectors.
+;;   4. Convert from the theta-based vector representation of velocity back to
+;;      the usual speed/heading representation for each particle.
+;;   5. Perform final cleanup and update derived quantities.
+to collide-with [ other-particle ] ;; particle procedure
+  ;;; PHASE 1: initial setup
+
+  ;; for convenience, grab some quantities from other-particle
+  let mass2 [mass] of other-particle
+  let speed2 [speed] of other-particle
+  let heading2 [heading] of other-particle
+
+  ;; since particles are modeled as zero-size points, theta isn't meaningfully
+  ;; defined. we can assign it randomly without affecting the model's outcome.
+  let theta (random-float 360)
+
+
+
+  ;;; PHASE 2: convert velocities to theta-based vector representation
+
+  ;; now convert my velocity from speed/heading representation to components
+  ;; along theta and perpendicular to theta
+  let v1t (speed * cos (theta - heading))
+  let v1l (speed * sin (theta - heading))
+
+  ;; do the same for other-particle
+  let v2t (speed2 * cos (theta - heading2))
+  let v2l (speed2 * sin (theta - heading2))
+
+
+
+  ;;; PHASE 3: manipulate vectors to implement collision
+
+  ;; compute the velocity of the system's center of mass along theta
+  let vcm (((mass * v1t) + (mass2 * v2t)) / (mass + mass2) )
+
+  ;; now compute the new velocity for each particle along direction theta.
+  ;; velocity perpendicular to theta is unaffected by a collision along theta,
+  ;; so the next two lines actually implement the collision itself, in the
+  ;; sense that the effects of the collision are exactly the following changes
+  ;; in particle velocity.
+  set v1t (2 * vcm - v1t)
+  set v2t (2 * vcm - v2t)
+
+
+
+  ;;; PHASE 4: convert back to normal speed/heading
+
+  ;; now convert my velocity vector into my new speed and heading
+  set speed sqrt ((v1t ^ 2) + (v1l ^ 2))
+  if speed > max-speed [ set max-speed speed ]
+  set energy (0.5 * mass * speed ^ 2)
+  ;; if the magnitude of the velocity vector is 0, atan is undefined. but
+  ;; speed will be 0, so heading is irrelevant anyway. therefore, in that
+  ;; case we'll just leave it unmodified.
+  if v1l != 0 or v1t != 0
+    [ set heading (theta - (atan v1l v1t)) ]
+
+  ;; and do the same for other-particle
+  ask other-particle [
+    set speed sqrt ((v2t ^ 2) + (v2l ^ 2))
+    if speed > max-speed [ set max-speed speed ]
+    set energy (0.5 * mass * (speed ^ 2))
+    if v2l != 0 or v2t != 0
+      [ set heading (theta - (atan v2l v2t)) ]
+  ]
+
+
+  ;; PHASE 5: final updates
+
+  ;; now recolor, since color is based on quantities that may have changed
+  recolor
+  ask other-particle
+    [ recolor ]
+end
+
+to recolor  ;; particle procedure
+  ifelse speed < (0.5 * 10)
+  [
+    set color blue
+  ]
+  [
+    ifelse speed > (1.5 * 10)
+      [ set color red ]
+      [ set color green ]
+  ]
+end
+
+to reset-walls-temperature
+  set outside-energy 0
+  recolor-box
+end
+
+to heat-up-walls
+  set outside-energy (outside-energy + temperature-delta)
+  ifelse outside-energy > 300
+  [
+    set outside-energy 300
+    make-out-of-range-sound
+  ]
+  [ if walls-temperature-sonification? [ make-box-changing-temperature-sound ] ]
+  recolor-box
+end
+
+to cool-down-walls
+  set outside-energy (outside-energy - temperature-delta)
+  ifelse outside-energy < 0
+  [
+    set outside-energy 0
+    make-out-of-range-sound
+  ]
+  [ if walls-temperature-sonification? [ make-box-changing-temperature-sound ] ]
+  recolor-box
+end
+
+;; reports true if there is a heated wall at the given location
+to-report heated-wall?
+  if ((abs pxcor = box-edge) and (abs pycor <= box-edge)) or
+     ((abs pycor = box-edge) and (abs pxcor <= box-edge))
+    [ report true ]
+  report false
+end
+
+;;;
+;;; drawing procedures
+;;;
+
+;; draws the box
+to make-box [ col ]
+  ask patches [ set pcolor black ]
+  ask patches with [ ((abs pxcor = box-edge) and (abs pycor <= box-edge)) or
+                     ((abs pycor = box-edge) and (abs pxcor <= box-edge)) ]
+  [ set pcolor col ]
+end
+
+to recolor-box
+  ifelse outside-energy = 0
+  [ set box-color yellow ]
+  [ set box-color scale-color red outside-energy 0 30 ]
+  make-box box-color
+end
+
+;; creates initial particles
+to make-particles
+  create-particles number-of-particles
+  [
+    setup-particle
+    random-position
+    recolor
+  ]
+  calculate-tick-delta
+end
+
+;; adds new particles into the box from the left nozzle
+to add-particles
+  ifelse particles-to-add > 0 and particles-to-add + count particles <= max-number-of-particles
+  [
+    create-particles particles-to-add
+    [ setup-particle
+      setxy (- box-edge) 0
+      set heading 90 ;; east
+      rt 45 - random-float 90
+      recolor
+    ]
+    make-added-particles-sound
+    calculate-tick-delta
+  ]
+  [ make-out-of-range-sound ]
+end
+
+to setup-particle  ;; particle procedure
+  set speed init-particle-speed
+  if speed > max-speed [ set max-speed speed ]
+  set mass particle-mass
+  set energy (0.5 * mass * speed * speed)
+  set last-collision nobody
+end
+
+;; place particle at random location inside the box.
+to random-position ;; particle procedure
+  setxy ((1 - box-edge) + random-float ((2 * box-edge) - 2))
+        ((1 - box-edge) + random-float ((2 * box-edge) - 2))
+end
+
+;; histogram procedure
+to draw-vert-line [ xval ]
+  plotxy xval plot-y-min
+  plot-pen-down
+  plotxy xval plot-y-max
+  plot-pen-up
+end
+
+to-report last-n [n the-list]
+  ifelse n >= length the-list
+    [ report the-list ]
+    [ report last-n n butfirst the-list ]
+end
+
+;;; Pressure is defined as the force per unit area.  In this context,
+;;; that means the total momentum per unit time transferred to the walls
+;;; by particle hits, divided by the surface area of the walls.  (Here
+;;; we're in a two dimensional world, so the "surface area" of the walls
+;;; is just their length.)  Each wall contributes a different amount
+;;; to the total pressure in the box, based on the number of collisions, the
+;;; direction of each collision, and the length of the wall.  Conservation of momentum
+;;; in hits ensures that the difference in momentum for the particles is equal to and
+;;; opposite to that for the wall.  The force on each wall is the rate of change in
+;;; momentum imparted to the wall, or the sum of change in momentum for each particle:
+;;; F = SUM  [d(mv)/dt] = SUM [m(dv/dt)] = SUM [ ma ], in a direction perpendicular to
+;;; the wall surface.  The pressure (P) on a given wall is the force (F) applied to that
+;;; wall over its surface area.  The total pressure in the box is sum of each wall's
+;;; pressure contribution.
+
+to calculate-pressure
+  ;; by summing the momentum change for each particle,
+  ;; the wall's total momentum change is calculated
+  set pressure 15 * sum [momentum-difference] of particles
+  set pressure-history lput pressure but-first pressure-history
+  set max-pressure-history lput (15 * sum [max-momentum-difference] of particles) but-first pressure-history
+  ask particles
+    [ set momentum-difference 0
+      set max-momentum-difference 0 ]  ;; once the contribution to momentum has been calculated
+                                   ;; this value is reset to zero till the next wall hit
+end
+
+;;;
+;;; Sonification of the module
+;;;
+to follow-turtle [ turtle-id follow? stop-follow? ]
+  if follow? [ ask turtles with [ who = turtle-id ] [ watch-me ] ]
+  if stop-follow? [ reset-perspective ]
+end
+
+to-report calculate-window-energy
+  let window-energy 0
+  let total-energy 0
+
+  ask particles [
+    set total-energy (total-energy + energy)
+    if (is-in-window? energy-window? xcor ycor) [ set window-energy (window-energy + energy) ]
+  ]
+
+  ifelse total-energy = 0
+  [ report 0 ]
+  [ report window-energy / total-energy ]
+end
+
+;; This procedure is called whenever a user tries to increment/decrement the value of a slider outside of defined range
+to make-added-particles-sound
+  sound:play-note (item added-particles-instrument sound:instruments) 59 90 0.3
+end
+
+to make-box-changing-temperature-sound
+  sound:play-note (item box-temperature-instrument sound:instruments) 44 round (127 * (outside-energy / 300)) 0.25
+end
+
+to make-out-of-range-sound
+  soundx:play-soundfile out-of-range-sound-file 0 0
+end
+
+to make-dash-particle-sound
+  soundx:play-soundfile dash-particle-sound-file (6 * ycor / min-pycor) (xcor / max-pxcor)
+end
+
+to make-particle-collision-sound
+  soundx:play-soundfile particle-collision-sound-file (6 * ycor / min-pycor) (xcor / max-pxcor)
+end
+
+to make-box-collision-sound
+  soundx:play-soundfile box-collision-sound-file (6 * ycor / min-pycor) (xcor / max-pxcor)
+end
+
+to make-center-crossing-sound
+  soundx:play-soundfile center-crossing-sound-file 1 0
+end
+
+;; This procedure is called whenever a slider's value is updated, in order to sonify the current value of that slider
+to sonify-slider [ current-value min-value max-value ]
+  sound:play-note (item slider-instrument sound:instruments) 44 round (127 * ((current-value - min-value) / (max-value - min-value))) 0.25
+end
+
+;; This procedure is called whenever a switch value is changed using a corresponding button (not the switch itself)
+to sonify-switch [ current-value ]
+  ifelse current-value
+  [ sound:play-note (item slider-instrument sound:instruments) 44 80 0.25 ]
+  [ sound:play-note (item slider-instrument sound:instruments) 44 25 0.25 ]
+end
+
+to sonify-event [ sound-file volume pan ]
+  soundx:play-soundfile sound-file (12 * (volume - 0.5)) pan ; expecting volume to be in the range 0-1 (like in midi extension)
+end
+
+to-report count-active-audiographs [ sonification-flags ]
+  let active 0
+  let list-size length sonification-flags
+  while [ list-size > 0 ][
+    if ( item ( list-size - 1) sonification-flags ) [ set active ( active + 1 ) ]
+    set list-size (list-size - 1)
+  ]
+  report active
+end
+
+to-report get-pan [ current-active active-audiographs ]
+  ifelse active-audiographs > 1
+  [
+    if ( current-active mod 3 ) = 0 [ report -1 ]
+    if ( current-active mod 3 ) = 1 [ report 1 ]
+    if ( current-active mod 3 ) = 2 [ report 0 ]
+  ]
+  [ report 0 ]
+end
+
+to toggle-audiograph-sonification [ start? channel note current-value min-value max-value ]
+  let min-volume min-value
+  let max-volume max-value
+  let current-volume current-value
+
+  ifelse start? [
+    if min-value != 0 [
+      set min-volume 0
+      set max-volume (max-value - min-value)
+      set current-volume (current-value - min-value)
+    ]
+    midi:noteon channel note 0.8
+    ifelse max-value != 0
+    [ midi:pitch.bend channel ((current-value / max-value) - 0.5 ) * 2 ]
+    [ midi:pitch.bend channel -1 ]
+  ]
+  [ midi:all.notes.off channel ]
+end
+
+to adjust-audiograph-sonification [ channel current-value min-value max-value history ]
+  if sonify-from-history? and length history > 0 [
+    set min-value min history
+    set max-value max history
+  ]
+  let min-volume min-value
+  let max-volume max-value
+  let current-volume current-value
+
+  if min-value != 0 [
+    set min-volume 0
+    set max-volume (max-value - min-value)
+    set current-volume (current-value - min-value)
+  ]
+  ifelse max-volume != 0
+  [ midi:pitch.bend channel ((current-volume / max-volume) - 0.5 ) * 2 ]
+  [ midi:pitch.bend channel -1 ]
+end
+
+to-report is-in-window? [ window? x y ]
+  report window? and (x <= max-pxcor and x >= min-pxcor and (abs (x - window-center-x) < (window-radius + 1)) and y <= max-pycor and y >= min-pycor and (abs (y - window-center-y) < (window-radius + 1)))
+end
+
+to toggle-window [ window? old-window? ]
+  if window? [
+    ask patches with [ (pxcor <= max-pxcor and pxcor >= min-pxcor and (abs (pxcor - window-center-x) = (window-radius + 1)) and pycor <= max-pycor and pycor >= min-pycor and (abs (pycor - window-center-y) <= (window-radius + 1))) or
+                       (pxcor <= max-pxcor and pxcor >= min-pxcor and (abs (pxcor - window-center-x) <= (window-radius + 1)) and pycor <= max-pycor and pycor >= min-pycor and (abs (pycor - window-center-y) = (window-radius + 1))) ]
+    [ set pcolor cyan ]
+  ]
+  if not window? and old-window? [ make-box box-color ]
+end
+
+to shift-window-up [ window? ]
+  ifelse (window-center-y + window-stride) <= max-pycor and window?
+  [ window-shifted-actions 0 window-stride ]
+  [ make-out-of-range-sound ]
+end
+
+to shift-window-right [ window? ]
+  ifelse (window-center-x + window-stride) <= max-pxcor and window?
+  [ window-shifted-actions window-stride 0 ]
+  [ make-out-of-range-sound ]
+end
+
+to shift-window-left [ window? ]
+  ifelse (window-center-x - window-stride) >= min-pxcor and  window?
+  [ window-shifted-actions ((-1) * window-stride) 0 ]
+  [ make-out-of-range-sound ]
+end
+
+to shift-window-down [ window? ]
+  ifelse (window-center-y - window-stride) >= min-pycor and  window?
+  [ window-shifted-actions 0 ((-1) * window-stride) ]
+  [ make-out-of-range-sound ]
+end
+
+to window-shifted-actions [ x-shift y-shift ]
+  set window-center-x (window-center-x + x-shift)
+  set window-center-y (window-center-y + y-shift)
+
+  if (x-shift != 0 and (window-center-x * (window-center-x - x-shift) <= 0)) or
+     (y-shift != 0 and (window-center-y * (window-center-y - y-shift) <= 0)) [ make-center-crossing-sound ]
+
+  make-box box-color
+  toggle-window true false
+end
+
+to sonify-window [ window? old-window? sheet note current-value min-value max-value history ]
+  if sonify-from-history? and length history > 0 [
+    set min-value min history
+    set max-value max history
+  ]
+  if window? and not old-window? ; window was just toggled on
+  [ midi:noteon sheet note 0.7 ]
+  if window? and old-window? ; window has been on for a while
+  [ midi:pitch.bend sheet ((current-value / max-value - 0.5) * 2) ]
+  if not window? and old-window? ; window was just toggled off
+  [ midi:all.notes.off sheet ]
+end
+
+; Copyright 1997 Uri Wilensky.
+; See Info tab for full copyright and license.

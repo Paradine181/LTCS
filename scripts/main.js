@@ -148,12 +148,15 @@ function clearChapterView() {
     }
 }
 
-function addParagraphToChapter(paragraph) {
+function addParagraphToChapter(paragraphUrl) {
     var chapterContent = document.querySelector('.model-content-text');
     var p = document.createElement('p');
     var newLine = document.createElement('br');
 
-    p.innerHTML = paragraph;
+    getFile(paragraphUrl, function(paragraph) {
+        const paragraphHTML = (require('highlight-nl')(paragraph)).replace(/\r\n/g, "\n").replace(/\n/g, '<br />').replace(/\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;').replace(/  /g, '&nbsp;&nbsp;&nbsp;&nbsp;');
+        p.innerHTML = paragraphHTML;
+    });
 
     chapterContent.appendChild(p);
     chapterContent.appendChild(newLine);
@@ -190,6 +193,22 @@ function addImageToGallery(image) {
     gallery.appendChild(galleryObject);
 }
 
+function getFile(path, callback) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', path);
+    xhr.addEventListener('load', function (e) {
+        if (xhr.status == 200) {
+            if (callback) {
+                callback(e.target.responseText);
+            }
+        } else {
+            console.error('received the following status from server: ' + xhr.status);
+            console.log('received the following status from server: ' + xhr.status);
+        }
+    });
+    xhr.send();
+}
+
 function initializeModels() {
     /* Introduction */
     var introModel = new Model('Introduction');
@@ -208,11 +227,7 @@ function initializeModels() {
     neilsModelAbout.addImage('./images/models/Neils/NeilsSerial_1.png', 'Neils - Serial Circuit');
     neilsModelAbout.addImage('./images/models/Neils/NeilsSingle_1.png', 'Neils - Single Wire');
 
-    /*var reader = new FileReader();
-    reader.addEventListener("loadend", function() {
-        neilsModelCode.addParagraph(reader.result);
-    });
-    reader.readAsText(new File('./images/models/Neils/SourceCode.txt'));*/
+    neilsModelCode.addParagraph('./images/models/Neils/SourceCode.txt');
 
     document.querySelector('#Neils').addEventListener('click', () => { setModelView(neilsModel); })
     
@@ -224,6 +239,8 @@ function initializeModels() {
     gasLabModelAbout.addImage('./images/models/GasLab/GasLab_0.png', 'Gas Lab - Initial State');
     gasLabModelAbout.addImage('./images/models/GasLab/GasLab_1.png', 'Gas Lab');
 
+    gasLabModelCode.addParagraph('./images/models/GasLab/SourceCode.txt');
+
     document.querySelector('#GasLab').addEventListener('click', () => { setModelView(gasLabModel); })
     
     /* 3. GasLab - Moving Piston */
@@ -233,6 +250,8 @@ function initializeModels() {
 
     gasLabMovingPistonModelAbout.addImage('./images/models/GasLabMovingPiston/GasLabMovingPiston_0.png', 'Gas Lab Moving Piston - Initial State');
     gasLabMovingPistonModelAbout.addImage('./images/models/GasLabMovingPiston/GasLabMovingPiston_1.png', 'Gas Lab Moving Piston');
+
+    gasLabMovingPistonModelCode.addParagraph('./images/models/GasLabMovingPiston/SourceCode.txt');
 
     document.querySelector('#GasLabMovingPiston').addEventListener('click', () => { setModelView(gasLabMovingPistonModel); })
     
@@ -244,6 +263,9 @@ function initializeModels() {
     isingModelAbout.addImage('./images/models/Ising/Ising_0.png', 'Ising - Initial State');
     isingModelAbout.addImage('./images/models/Ising/Ising_1.png', 'Ising');
 
+    isingModelCode.addParagraph('./images/models/Ising/SourceCode.txt');
+
+
     document.querySelector('#Ising').addEventListener('click', () => { setModelView(isingModel); })
     
     /* 5. Crystalization */
@@ -253,6 +275,8 @@ function initializeModels() {
 
     crystalizationModelAbout.addImage('./images/models/CrystalizationBasic/CrystalizationBasic_0.png', 'Crystalization - Initial State');
     crystalizationModelAbout.addImage('./images/models/CrystalizationBasic/CrystalizationBasic_1.png', 'Crystalization');
+
+    crystalizationModelCode.addParagraph('./images/models/CrystalizationBasic/SourceCode.txt');
 
     document.querySelector('#Crystalization').addEventListener('click', () => { setModelView(crystalizationModel); })
     
@@ -264,6 +288,8 @@ function initializeModels() {
     kinetics1ModelAbout.addImage('./images/models/SimpleKinetics1/SimpleKinetics1_0.png', 'Simple Kinetics 1 - Initial State');
     kinetics1ModelAbout.addImage('./images/models/SimpleKinetics1/SimpleKinetics1_1.png', 'Simple Kinetics 1');
 
+    kinetics1ModelCode.addParagraph('./images/models/SimpleKinetics1/SourceCode.txt');
+
     document.querySelector('#SimpleKinetics1').addEventListener('click', () => { setModelView(kinetics1Model); })
     
     /* 7. Simple Kinetics 2 */
@@ -274,6 +300,8 @@ function initializeModels() {
     kinetics2ModelAbout.addImage('./images/models/SimpleKinetics2/SimpleKinetics2_0.png', 'Simple Kinetics 2 - Initial State');
     kinetics2ModelAbout.addImage('./images/models/SimpleKinetics2/SimpleKinetics2_1.png', 'Simple Kinetics 2');
 
+    kinetics2ModelCode.addParagraph('./images/models/SimpleKinetics2/SourceCode.txt');
+
     document.querySelector('#SimpleKinetics2').addEventListener('click', () => { setModelView(kinetics2Model); })
     
     /* 8. Simple Kinetics 3 */
@@ -283,6 +311,8 @@ function initializeModels() {
 
     kinetics3ModelAbout.addImage('./images/models/SimpleKinetics3/SimpleKinetics3_0.png', 'Simple Kinetics 3 - Initial State');
     kinetics3ModelAbout.addImage('./images/models/SimpleKinetics3/SimpleKinetics3_1.png', 'Simple Kinetics 3');
+
+    kinetics3ModelCode.addParagraph('./images/models/SimpleKinetics3/SourceCode.txt');
 
     document.querySelector('#SimpleKinetics3').addEventListener('click', () => { setModelView(kinetics3Model); })
     

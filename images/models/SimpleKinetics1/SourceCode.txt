@@ -1,0 +1,412 @@
+extensions [sound soundx midi]
+
+globals [
+  was-reset
+  ;; boundaries for sliders
+  min-number         max-number
+  min-Kb             max-Kb
+  min-Ku             max-Ku
+  min-dash-stride    max-dash-stride
+
+  ;; variables
+  green-turtles
+  red-turtles
+  turns-to-red
+  turns-to-green
+  old-sonify-reactants?
+  old-sonify-products?
+  old-sonify-concentrations?
+  old-sonify-turns-to-red?
+  old-sonify-turns-to-green?
+  old-sonify-reactions?
+  old-follow-molecule?
+  molecule-id
+  history-sonify-reactants
+  history-sonify-products
+  history-sonify-turns-to-red
+  history-sonify-turns-to-green
+
+  ;; constants for soundx extension
+  current-folder                             ;; the path to the current folder of the model
+  dash-particle-sound-file                   ;; the name of the sound file to be played when dashing a particle
+  out-of-range-sound-file                    ;; the name of the sound file to be played when an increase/decrease button is pressed while the slider is at its limit
+  collisions-sound-file                      ;; the name of the sound file to be played when 2 green particles turn into 1 red particle
+  failed-collisions-sound-file               ;; the name of the sound file to be played when 2 green particles try to turn into 1 red particle but fail
+  break-downs-sound-file                     ;; the name of the sound file to be played when 1 red particle turns into 2 green particles
+
+]
+
+breed [reactants reactant]    ;; reactants are green, products are red
+breed [products product]
+
+turtles-own [
+  moved
+]
+
+to setup
+  let bk-was-reset was-reset
+  clear-all
+  set-default-shape reactants "molecule1"
+  set-default-shape products "molecule2"
+  init-constants
+  ifelse reset-on-setup? or  bk-was-reset = 0
+  [ init-variables ]
+  [ reset-old-flags ]
+  set was-reset 1
+  init-sounds
+  create-reactants number
+    [ set color green
+      setxy random-xcor random-ycor ]
+  reset-ticks
+end
+
+to init-constants
+  set min-number 1
+  set max-number 1000
+  set min-Kb 0
+  set max-Kb 100
+  set min-Ku 0
+  set max-Ku 100
+  set min-dash-stride 1
+  set max-dash-stride 20
+
+  set history-sonify-reactants []
+  set history-sonify-products []
+  set history-sonify-turns-to-red []
+  set history-sonify-turns-to-green []
+
+  ; constants for soundx files to be used in the module
+  set current-folder word soundx:CURRENT-DIR "/"
+  set out-of-range-sound-file word current-folder "Navajo_drum_short.wav"
+  set dash-particle-sound-file word current-folder "telephone1.wav"
+  set collisions-sound-file word current-folder "billiard1.wav"
+  set break-downs-sound-file word current-folder "pop.wav"
+  set failed-collisions-sound-file word current-folder "Navajo_drum_short.wav"
+end
+
+to init-variables
+  set green-turtles 0
+  set red-turtles 0
+  set turns-to-red 0
+  set turns-to-green 0
+  set sonify-reactants? false
+  set sonify-products? false
+  set sonify-concentration? false
+  set sonify-turns-to-red? false
+  set sonify-turns-to-green? false
+  set sonify-reactions? false
+  set follow-molecule? false
+
+  update-old-flags
+end
+
+to init-sounds
+  midi:conductor.stop
+  midi:all.notes.off 1
+  midi:all.notes.off 2
+  midi:all.notes.off 3
+  midi:all.notes.off 4
+
+  midi:conductor.clear.sheets
+  midi:conductor.setplaymode.endless
+
+  midi:instrument 1 reactants-sonification-instrument + 1
+  midi:instrument 2 products-sonification-instrument + 1
+  midi:instrument 3 turns-to-red-sonification-instrument + 1
+  midi:instrument 4 turns-to-green-sonification-instrument + 1
+end
+
+to reset-old-flags
+  set old-sonify-reactants? false
+  set old-sonify-products? false
+  set old-sonify-concentrations? false
+  set old-sonify-turns-to-red? false
+  set old-sonify-turns-to-green? false
+  set old-sonify-reactions? false
+  set old-follow-molecule? false
+end
+to update-old-flags
+  set old-sonify-reactants? sonify-reactants?
+  set old-sonify-products? sonify-products?
+  set old-sonify-concentrations? sonify-concentration?
+  set old-sonify-turns-to-red? sonify-turns-to-red?
+  set old-sonify-turns-to-green? sonify-turns-to-green?
+  set old-sonify-reactions? sonify-reactions?
+  set old-follow-molecule? follow-molecule?
+end
+
+to go
+  set red-turtles count turtles with [ color = red ]
+  set green-turtles count turtles with [ color = green ]
+  set turns-to-red 0
+  set turns-to-green 0
+
+  ask turtles
+  [ rt random-float 10 - random-float 10  ;; wander around randomly
+    fd 1
+    set moved (moved + 1)
+    if floor moved / dash-stride  > 1 [
+      if follow-molecule? and molecule-id = who [ sonify-event dash-particle-sound-file ((((ycor / min-pycor) / 2) + 0.5) * 0.9 + 0.1) (xcor / max-pxcor) ]
+        set moved (moved mod dash-stride)
+      ]
+  ]
+  ask turtles
+  [ ifelse (breed = reactants)
+      [ react-forward ]  ; reactants
+      [ react-backward ] ; products
+  ]
+
+  sonify-model
+
+  tick
+end
+
+to sonify-model
+  if sonify-concentration? != old-sonify-concentrations? [
+    set sonify-reactants? sonify-concentration?
+    set sonify-products? sonify-concentration?
+  ]
+
+  if sonify-reactions? != old-sonify-reactions? [
+    set sonify-turns-to-red? sonify-reactions?
+    set sonify-turns-to-green? sonify-reactions?
+  ]
+
+  let sonification-current-flags []
+  set sonification-current-flags ( lput sonify-reactants? sonification-current-flags )
+  set sonification-current-flags ( lput sonify-products? sonification-current-flags )
+  set sonification-current-flags ( lput sonify-turns-to-red? sonification-current-flags )
+  set sonification-current-flags ( lput sonify-turns-to-green? sonification-current-flags )
+  let active-audiographs ( count-active-audiographs sonification-current-flags )
+  let current-active 0
+
+  if old-sonify-reactants? != sonify-reactants? [
+    toggle-audiograph-sonification sonify-reactants? 1 reactants-sonification-note (count reactants) 0 ((2 * (count products)) + (count reactants))
+  ]
+  if sonify-reactants? [
+    ifelse length history-sonify-reactants < history-size
+    [ set history-sonify-reactants lput (count reactants) history-sonify-reactants ]
+    [ set history-sonify-reactants but-first lput (count reactants) history-sonify-reactants ]
+
+    adjust-audiograph-sonification 1 (count reactants) 0 ((2 * (count products)) + (count reactants)) history-sonify-reactants
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 1 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 1 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  if old-sonify-products? != sonify-products? [
+    toggle-audiograph-sonification sonify-products? 2 products-sonification-note (count products)  0 ((2 * (count products)) + (count reactants))
+  ]
+  if sonify-products? [
+    ifelse length history-sonify-products < history-size
+    [ set history-sonify-products lput (count products) history-sonify-products ]
+    [ set history-sonify-products but-first lput (count products) history-sonify-products ]
+
+    adjust-audiograph-sonification 2 (count products)  0 ((2 * (count products)) + (count reactants)) history-sonify-products
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 2 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 2 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  if old-sonify-turns-to-red? != sonify-turns-to-red? [
+    toggle-audiograph-sonification sonify-turns-to-red? 3 turns-to-red-sonification-note turns-to-red 0 (floor (green-turtles / 2))
+  ]
+  if sonify-turns-to-red? [
+    ifelse length history-sonify-turns-to-red < history-size
+    [ set history-sonify-turns-to-red lput turns-to-red history-sonify-turns-to-red ]
+    [ set history-sonify-turns-to-red but-first lput turns-to-red history-sonify-turns-to-red ]
+
+    adjust-audiograph-sonification 3 turns-to-red 0 (floor (green-turtles / 2)) history-sonify-turns-to-red
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 3 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 3 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  if old-sonify-turns-to-green? != sonify-turns-to-green? [
+    toggle-audiograph-sonification sonify-turns-to-green? 4 turns-to-green-sonification-note turns-to-green 0 red-turtles
+  ]
+  if sonify-turns-to-green? [
+    ifelse length history-sonify-turns-to-green < history-size
+    [ set history-sonify-turns-to-green lput turns-to-green history-sonify-turns-to-green ]
+    [ set history-sonify-turns-to-green but-first lput turns-to-green history-sonify-turns-to-green ]
+
+    adjust-audiograph-sonification 4 turns-to-green 0 red-turtles history-sonify-turns-to-green
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 4 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 4 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  if old-follow-molecule? != follow-molecule?
+  [
+    ifelse follow-molecule?
+    [
+      ask one-of turtles [
+        set molecule-id who
+        watch-me
+      ]
+    ]
+    [
+      reset-perspective
+      set molecule-id -1
+    ]
+  ]
+
+  update-old-flags
+end
+
+to stop-sonification
+  set sonify-concentration? false
+  set sonify-reactants? false
+  set sonify-products? false
+  set sonify-reactions? false
+  set sonify-turns-to-red? false
+  set sonify-turns-to-green? false
+  set follow-molecule? false
+
+  sonify-model
+end
+
+to react-forward
+  if (any? other reactants-here)
+  [
+     ;; multiply Kb by 2 because 2 molecules are involved
+     ifelse random-float 1000 < (Kb * 2)
+     [
+      let this-id who
+      ask one-of other reactants-here
+        [
+          if follow-molecule? and molecule-id = who [
+            set molecule-id this-id
+            ask turtles with [ who = this-id] [ watch-me ]
+          ]
+          die
+        ]
+      if follow-molecule? and molecule-id = who [ sonify-event collisions-sound-file ((((ycor / min-pycor) / 2) + 0.5) * 0.9 + 0.1) (xcor / max-pxcor) ]
+      set breed products
+      set color red
+      set turns-to-red (turns-to-red + 1)
+    ]
+    [ if follow-molecule? and molecule-id = who [ sonify-event failed-collisions-sound-file ((((ycor / min-pycor) / 2) + 0.5) * 0.9 + 0.1) (xcor / max-pxcor) ] ]
+  ]
+end
+
+to react-backward
+  if (random-float 1000) < Ku [
+    set breed reactants    ;; change back to reactant
+    set color green
+    hatch 1
+    if follow-molecule? and molecule-id = who [ sonify-event break-downs-sound-file ((((ycor / min-pycor) / 2) + 0.5) * 0.9 + 0.1) (xcor / max-pxcor) ]
+    set turns-to-green (turns-to-green + 1)
+  ]         ;; then split into two reactants
+end
+
+;;
+;; Sonification
+;;
+
+;; This procedure is called whenever a slider's value is updated, in order to sonify the current value of that slider
+to sonify-slider [ current-value min-value max-value ]
+  sound:play-note (item slider-instrument sound:instruments) 44 round (127 * ((current-value - min-value) / (max-value - min-value))) 0.25
+end
+
+;; This procedure is called whenever a switch value is changed using a corresponding button (not the switch itself)
+to sonify-switch [ current-value ]
+  ifelse current-value
+  [ sound:play-note (item slider-instrument sound:instruments) 44 80 0.25 ]
+  [ sound:play-note (item slider-instrument sound:instruments) 44 25 0.25 ]
+end
+
+to sonify-event [ sound-file volume pan ]
+  soundx:play-soundfile sound-file (12 * (volume - 0.5)) pan ; expecting volume to be in the range 0-1 (like in midi extension)
+end
+
+to-report count-active-audiographs [ sonification-flags ]
+  let active 0
+  let list-size length sonification-flags
+  while [ list-size > 0 ][
+    if ( item ( list-size - 1) sonification-flags ) [ set active ( active + 1 ) ]
+    set list-size (list-size - 1)
+  ]
+  report active
+end
+
+to-report get-pan [ current-active active-audiographs ]
+  ifelse active-audiographs > 1
+  [
+    if ( current-active mod 3 ) = 0 [ report -1 ]
+    if ( current-active mod 3 ) = 1 [ report 1 ]
+    if ( current-active mod 3 ) = 2 [ report 0 ]
+  ]
+  [ report 0 ]
+end
+
+to toggle-audiograph-sonification [ start? channel note current-value min-value max-value ]
+  let min-volume min-value
+  let max-volume max-value
+  let current-volume current-value
+
+  ifelse start? [
+    if min-value != 0 [
+      set min-volume 0
+      set max-volume (max-value - min-value)
+      set current-volume (current-value - min-value)
+    ]
+    midi:noteon channel note 0.8
+    ifelse max-value != 0
+    [ midi:pitch.bend channel ((current-value / max-value) - 0.5 ) * 2 ]
+    [ midi:pitch.bend channel -1 ]
+  ]
+  [ midi:all.notes.off channel ]
+end
+
+to adjust-audiograph-sonification [ channel current-value min-value max-value history ]
+  if sonify-from-history? [
+    set min-value min history
+    set max-value max history
+  ]
+  let min-volume min-value
+  let max-volume max-value
+  let current-volume current-value
+
+  if min-value != 0 [
+    set min-volume 0
+    set max-volume (max-value - min-value)
+    set current-volume (current-value - min-value)
+  ]
+  ifelse max-value != 0
+  [ midi:pitch.bend channel ((current-value / max-value) - 0.5 ) * 2 ]
+  [ midi:pitch.bend channel -1 ]
+end
+
+to-report increase-slider-value [ variable increase-by min-limit max-limit ]
+  set variable (variable + increase-by)
+  ifelse variable > max-limit
+  [
+    set variable max-limit
+    sonify-event out-of-range-sound-file 0.5 0
+  ]
+  [ sonify-slider variable min-limit max-limit ]
+  report variable
+end
+
+to-report decrease-slider-value [ variable decrease-by min-limit max-limit ]
+  set variable (variable - decrease-by)
+  ifelse variable < min-limit
+  [
+    set variable min-limit
+    sonify-event out-of-range-sound-file 0.5 0
+  ]
+  [ sonify-slider variable min-limit max-limit ]
+  report variable
+end
+
+; Copyright 1998 Uri Wilensky.
+; See Info tab for full copyright and license.

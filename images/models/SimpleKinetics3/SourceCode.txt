@@ -1,0 +1,489 @@
+extensions [ sound soundx midi ]
+
+breed [waters water]       ;; blue molecules
+breed [anions anion]       ;; red molecules
+
+turtles-own [
+  moved
+]
+
+globals [
+  was-reset
+  shrink      ;; how many steps right side has been shrunk
+
+  ;; constants for soundx extension
+  current-folder                             ;; the path to the current folder of the model
+  dash-particle-sound-file                   ;; the name of the sound file to be played when dashing a particle
+  out-of-range-sound-file                    ;; the name of the sound file to be played when an increase/decrease button is pressed while the slider is at its limit
+  box-collision-sound-file                   ;; the name of the sound file to be played when particles collide with the box
+  center-crossing-sound-file                 ;; the name of the sound file to be played when a window passes a central axis (vertical or horizontal) of the world
+
+  ;; constants for sliders' boundaries
+  min-window-edge    max-window-edge
+  min-dash-stride    max-dash-stride
+
+  ;; variables to hold previous state of switches (used for switch state changed event)
+  old-sonify-equilibration-plot?
+  old-sonify-anions-plot?
+  old-sonify-water-plot?
+  old-sonify-left-anions?
+  old-sonify-right-anions?
+  old-sonify-left-water?
+  old-sonify-right-water?
+  old-follow-anion?
+  old-follow-water?
+
+  history-sonify-anions
+  history-sonify-water
+
+  molecule-id
+]
+
+;; set up model with molecules randomly distributed across world
+to setup [both-sides?]
+  let bk-was-reset was-reset
+  clear-all
+  set-default-shape turtles "circle"
+  init-constants
+  ifelse reset-on-setup? or bk-was-reset = 0
+  [ init-variables ]
+  [ reset-old-flags ]
+  set was-reset 1
+  init-sounds
+  set shrink 0
+  draw-walls
+  create-waters 100         ;; makes 100 blue water molecules
+    [ set color blue
+      randomize ]                 ;; and puts them on both sides
+  create-anions 50         ;; makes 50 red anions
+    [ set color red
+      ifelse both-sides?          ;; and puts them on one or both sides depending
+        [ randomize ]             ;; on which setup button was pressed
+        [ randomize-right ] ]
+  reset-ticks
+end
+
+to init-constants
+  set min-window-edge 2
+  set max-window-edge 12
+  set min-dash-stride 1
+  set max-dash-stride 20
+
+  set history-sonify-anions []
+  set history-sonify-water []
+  ; constants for soundx files to be used in the module
+  set current-folder word soundx:CURRENT-DIR "/"
+  set dash-particle-sound-file word current-folder "telephone1.wav"
+  set out-of-range-sound-file word current-folder "Navajo_drum_short.wav"
+  set box-collision-sound-file word current-folder "Navajo_drum_short.wav"
+  set center-crossing-sound-file word current-folder "pop.wav"
+end
+
+to init-variables
+  set sonify-equilibration-plot? false
+  set sonify-anions-plot? false
+  set sonify-water-plot? false
+  set sonify-left-anions? false
+  set sonify-right-anions? false
+  set sonify-left-water? false
+  set sonify-right-water? false
+  set follow-anion? false
+  set follow-water? false
+
+  update-old-flags
+end
+
+to init-sounds
+midi:conductor.stop
+  midi:all.notes.off 1
+  midi:all.notes.off 2
+  midi:all.notes.off 3
+  midi:all.notes.off 4
+  midi:all.notes.off 5
+  midi:all.notes.off 6
+
+  midi:conductor.clear.sheets
+  midi:conductor.setplaymode.endless
+
+  midi:instrument 1 anions-plot-sonification-instrument + 1
+  midi:instrument 2 water-plot-sonification-instrument + 1
+  midi:instrument 3 left-anions-sonification-instrument + 1
+  midi:instrument 4 right-anions-sonification-instrument + 1
+  midi:instrument 5 left-water-sonification-instrument + 1
+  midi:instrument 6 right-water-sonification-instrument + 1
+end
+
+to reset-old-flags
+  set old-sonify-equilibration-plot? false
+  set old-sonify-anions-plot? false
+  set old-sonify-water-plot? false
+  set old-sonify-left-anions? false
+  set old-sonify-right-anions? false
+  set old-sonify-left-water? false
+  set old-sonify-right-water? false
+  set old-follow-anion? false
+  set old-follow-water? false
+end
+
+to update-old-flags
+  set old-sonify-equilibration-plot? sonify-equilibration-plot?
+  set old-sonify-anions-plot? sonify-anions-plot?
+  set old-sonify-water-plot? sonify-water-plot?
+  set old-sonify-left-anions? sonify-left-anions?
+  set old-sonify-right-anions? sonify-right-anions?
+  set old-sonify-left-water? sonify-left-water?
+  set old-sonify-right-water? sonify-right-water?
+  set old-follow-anion? follow-anion?
+  set old-follow-water? follow-water?
+end
+
+;;turtle procedure that randomizes heading and position
+to randomize
+  setxy random-xcor random-ycor
+  if any? patches in-radius 1 with [pcolor = green]
+    [ randomize ] ;; keep trying until we don't land on or near green
+end
+
+;; turtle procedure that randomizes heading and position on the
+;; right side of the membrane
+to randomize-right
+  setxy abs random-xcor
+        random-ycor
+  if any? patches in-radius 1 with [pcolor = green]
+    [ randomize-right ] ;; try again until we don't land on or near green
+end
+
+;; observer procedure that makes the walls of the box
+to draw-walls
+  ;; don't let the window be bigger than the right chamber
+  if (window-edge > (max-pycor - shrink))
+    [ set window-edge (max-pycor - shrink) ]
+  ask patches with [(pxcor = min-pxcor) or
+                    ((pxcor < 0) and (abs pycor = max-pycor)) or
+                    (pxcor >= max-pxcor - shrink) or
+                    ((pxcor > 0) and (abs pycor >= max-pycor - shrink))]
+    [ set pcolor green ]
+  ask patches with [pxcor = 0]
+    [ ifelse abs pycor < window-edge
+        [ set pcolor black ]
+        [ set pcolor green ] ]
+  ;; make sure no turtles are embedded in the middle wall
+  ;; if the window size changed
+  ask turtles with [(pxcor = 0) and (pcolor = green)]
+    [ randomize ]
+end
+
+to go
+  ask turtles
+    [
+      bounce
+      fd 1
+      set moved (moved + 1)
+      if floor moved / dash-stride  > 1 [
+        if color = red [
+          if follow-anion? and molecule-id = who [ sonify-event dash-particle-sound-file ((((ycor / min-pycor) / 2) + 0.5) * 0.9 + 0.1) (xcor / max-pxcor) ]
+        ]
+        if color = blue [
+          if follow-water? and molecule-id = who [ sonify-event dash-particle-sound-file ((((ycor / min-pycor) / 2) + 0.5) * 0.9 + 0.1) (xcor / max-pxcor) ]
+        ]
+        set moved (moved mod dash-stride)
+      ]
+      if (follow-anion? or follow-water?) and (molecule-id = who) and ([pxcor] of patch-here = 0) and ((abs [pycor] of patch-here) < window-edge) [ sonify-event center-crossing-sound-file ((((ycor / min-pycor) / 2) + 0.5) * 0.9 + 0.1) (xcor / max-pxcor) ]
+    ]
+
+  sonify-model
+
+  tick
+end
+
+to sonify-model
+  if old-sonify-equilibration-plot? != sonify-equilibration-plot? [
+    set sonify-anions-plot? sonify-equilibration-plot?
+    set sonify-water-plot? sonify-equilibration-plot?
+  ]
+
+  if ((old-follow-anion? != follow-anion?) and  follow-anion?) [
+    set follow-water? false
+  ]
+  if ((old-follow-water? != follow-water?) and follow-water?) [
+    set follow-anion? false
+  ]
+
+  let sonification-current-flags []
+  set sonification-current-flags ( lput sonify-anions-plot? sonification-current-flags )
+  set sonification-current-flags ( lput sonify-water-plot? sonification-current-flags )
+  let active-audiographs ( count-active-audiographs sonification-current-flags )
+  let current-active 0
+
+  if old-sonify-anions-plot? != sonify-anions-plot? [
+    toggle-audiograph-sonification sonify-anions-plot? 1 anions-plot-sonification-note ((count anions with [xcor >= 0]) - (count anions with [xcor < 0])) ((-1) * (count anions)) (count anions)
+  ]
+  if sonify-anions-plot? [
+    ifelse length history-sonify-anions < history-size
+    [ set history-sonify-anions lput ((count anions with [xcor >= 0]) - (count anions with [xcor < 0])) history-sonify-anions ]
+    [ set history-sonify-anions but-first lput ((count anions with [xcor >= 0]) - (count anions with [xcor < 0])) history-sonify-anions ]
+
+    adjust-audiograph-sonification 1 ((count anions with [xcor >= 0]) - (count anions with [xcor < 0])) ((-1) * (count anions)) (count anions) history-sonify-anions
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 1 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 1 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  if old-sonify-water-plot? != sonify-water-plot? [
+    toggle-audiograph-sonification sonify-water-plot? 2 water-plot-sonification-note ((count waters with [xcor >= 0]) - (count waters with [xcor < 0])) ((-1) * (count waters)) (count waters)
+  ]
+  if sonify-water-plot? [
+    ifelse length history-sonify-water < history-size
+    [ set history-sonify-water lput ((count waters with [xcor >= 0]) - (count waters with [xcor < 0])) history-sonify-water ]
+    [ set history-sonify-water but-first lput ((count waters with [xcor >= 0]) - (count waters with [xcor < 0])) history-sonify-water ]
+
+    adjust-audiograph-sonification 2 ((count waters with [xcor >= 0]) - (count waters with [xcor < 0])) ((-1) * (count waters)) (count waters) history-sonify-water
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 2 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 2 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  if old-sonify-left-anions? != sonify-left-anions? [
+    toggle-audiograph-sonification sonify-left-anions? 3 left-anions-sonification-note (count anions with [xcor < 0]) 0 (count anions)
+  ]
+  if sonify-left-anions? [
+    adjust-audiograph-sonification 3 (count anions with [xcor < 0]) 0 (count anions) []
+    midi:pan 3 -1
+  ]
+
+  if old-sonify-right-anions? != sonify-right-anions? [
+    toggle-audiograph-sonification sonify-right-anions? 4 right-anions-sonification-note (count anions with [xcor >= 0]) 0 (count anions)
+  ]
+  if sonify-right-anions? [
+    adjust-audiograph-sonification 4 (count anions with [xcor >= 0]) 0 (count anions) []
+    midi:pan 4 1
+  ]
+
+  if old-sonify-left-water? != sonify-left-water? [
+    toggle-audiograph-sonification sonify-left-water? 5 left-water-sonification-note (count waters with [xcor < 0]) 0 (count waters)
+  ]
+  if sonify-left-water? [
+    adjust-audiograph-sonification 5 (count waters with [xcor < 0]) 0 (count waters) []
+    midi:pan 5 -1
+  ]
+
+  if old-sonify-right-water? != sonify-right-water? [
+    toggle-audiograph-sonification sonify-right-water? 6 right-water-sonification-note (count waters with [xcor >= 0]) 0 (count waters)
+  ]
+  if sonify-right-water? [
+    adjust-audiograph-sonification 6 (count waters with [xcor >= 0]) 0 (count waters) []
+    midi:pan 6 1
+  ]
+
+  if (old-follow-anion? != follow-anion?) [
+    ifelse follow-anion?
+    [
+      ask one-of anions [
+        set molecule-id who
+        watch-me
+      ]
+    ]
+    [
+      if not follow-water? [
+        reset-perspective
+        set molecule-id -1
+      ]
+    ]
+  ]
+
+  if (old-follow-water? != follow-water?) [
+    ifelse follow-water?
+    [
+      ask one-of waters [
+        set molecule-id who
+        watch-me
+      ]
+    ]
+    [
+      if not follow-anion? [
+        reset-perspective
+        set molecule-id -1
+      ]
+    ]
+  ]
+
+  update-old-flags
+end
+
+to stop-sonification
+  set sonify-equilibration-plot? false
+  set sonify-anions-plot? false
+  set sonify-water-plot? false
+  set sonify-left-anions? false
+  set sonify-right-anions? false
+  set sonify-left-water? false
+  set sonify-right-water? false
+  set follow-anion? false
+  set follow-water? false
+
+  sonify-model
+end
+
+;;observer procedure used to place 25 more red anions on the right
+to add-anions-right
+  create-anions 25
+    [ set color red
+      randomize-right ]
+end
+
+to bounce ;; turtle procedure
+  ;; Note: The minimum on the window-edge slider is 2, not 0 or 1, because
+  ;; this code does not correctly handle the case where window-edge is 1
+  ;; (sometimes molecules get stuck in the window).
+  ; if we're not about to land on green, we don't need to do any
+  ; further checks
+  if [pcolor] of patch-ahead 1 != green [ stop ]
+  ; figure out where the walls are on this side of the box
+  let box-edge-x max-pxcor
+  let box-edge-y max-pycor
+  if xcor >= 0
+    [ set box-edge-x max-pxcor - shrink
+      set box-edge-y max-pycor - shrink ]
+  ; check: hitting left, right, or middle wall?
+  if (abs [pxcor] of patch-ahead 1 = box-edge-x) or
+     (([pxcor] of patch-ahead 1 = 0) and (pxcor != 0))
+    ; if so, reflect heading around x axis
+    [
+      set heading (- heading)
+      if (follow-anion? or follow-water?) and (who = molecule-id) [ sonify-event box-collision-sound-file ((((ycor / min-pycor) / 2) + 0.5) * 0.9 + 0.1) (xcor / max-pxcor) ]
+    ]
+  ; check: hitting top or bottom wall, or edge of middle wall?
+  if (abs [pycor] of patch-ahead 1 = box-edge-y) or
+     (([pycor] of patch-ahead 1 = 0) and (pxcor = 0))
+    ; if so, reflect heading around y axis
+    [
+      set heading (180 - heading)
+      if (follow-anion? or follow-water?) and (who = molecule-id) [ sonify-event box-collision-sound-file ((((ycor / min-pycor) / 2) + 0.5) * 0.9 + 0.1) (xcor / max-pxcor) ]
+    ]
+end
+
+;; observer procedure that causes right side of divider to shrink (if amount is
+;; positive) or expand (if amount is negative)
+to shrink-or-expand [amount]
+  set shrink (shrink + amount)
+  ;; keep it within bounds
+  if (shrink < 0)
+    [ set shrink 0 ]
+  if (shrink >= max-pxcor - 2)
+    [ set shrink max-pxcor - 2 ]
+  if (shrink >= max-pycor - 2)
+    [ set shrink max-pycor - 2 ]
+  clear-patches
+  draw-walls
+  ;; make sure no turtles are embedded in the walls
+  ask turtles with [(xcor > 0) and (pcolor = green)]
+    [ randomize-right ]
+end
+
+;;
+;; Sonification
+;;
+
+;; This procedure is called whenever a slider's value is updated, in order to sonify the current value of that slider
+to sonify-slider [ current-value min-value max-value ]
+  if max-value != min-value [ sound:play-note (item slider-instrument sound:instruments) 44 round (127 * ((current-value - min-value) / (max-value - min-value))) 0.25 ]
+end
+
+;; This procedure is called whenever a switch value is changed using a corresponding button (not the switch itself)
+to sonify-switch [ current-value ]
+  ifelse current-value
+  [ sound:play-note (item slider-instrument sound:instruments) 44 80 0.25 ]
+  [ sound:play-note (item slider-instrument sound:instruments) 44 25 0.25 ]
+end
+
+to sonify-event [ sound-file volume pan ]
+  soundx:play-soundfile sound-file (12 * (volume - 0.5)) pan ; expecting volume to be in the range 0-1 (like in midi extension)
+end
+
+to-report count-active-audiographs [ sonification-flags ]
+  let active 0
+  let list-size length sonification-flags
+  while [ list-size > 0 ][
+    if ( item ( list-size - 1) sonification-flags ) [ set active ( active + 1 ) ]
+    set list-size (list-size - 1)
+  ]
+  report active
+end
+
+to-report get-pan [ current-active active-audiographs ]
+  ifelse active-audiographs > 1
+  [
+    if ( current-active mod 3 ) = 0 [ report -1 ]
+    if ( current-active mod 3 ) = 1 [ report 1 ]
+    if ( current-active mod 3 ) = 2 [ report 0 ]
+  ]
+  [ report 0 ]
+end
+
+to toggle-audiograph-sonification [ start? channel note current-value min-value max-value ]
+  let min-volume min-value
+  let max-volume max-value
+  let current-volume current-value
+
+  ifelse start? [
+    if min-value != 0 [
+      set min-volume 0
+      set max-volume (max-value - min-value)
+      set current-volume (current-value - min-value)
+    ]
+    midi:noteon channel note 0.8
+    ifelse max-value != 0
+    [ midi:pitch.bend channel ((current-value / max-value) - 0.5 ) * 2 ]
+    [ midi:pitch.bend channel -1 ]
+  ]
+  [ midi:all.notes.off channel ]
+end
+
+to adjust-audiograph-sonification [ channel current-value min-value max-value history ]
+  if sonify-from-history? and length history > 0 [
+    set min-value min history
+    set max-value max history
+  ]
+  let min-volume min-value
+  let max-volume max-value
+  let current-volume current-value
+
+  if min-value != 0 [
+    set min-volume 0
+    set max-volume (max-value - min-value)
+    set current-volume (current-value - min-value)
+  ]
+  ifelse max-volume != 0
+  [ midi:pitch.bend channel ((current-volume / max-volume) - 0.5 ) * 2 ]
+  [ midi:pitch.bend channel -1 ]
+end
+
+to-report increase-slider-value [ variable increase-by min-limit max-limit prec ]
+  set variable (variable + increase-by)
+  ifelse variable > max-limit
+  [
+    set variable max-limit
+    sonify-event out-of-range-sound-file 0.5 0
+  ]
+  [ sonify-slider variable min-limit max-limit ]
+  report precision variable prec
+end
+
+to-report decrease-slider-value [ variable decrease-by min-limit max-limit prec ]
+  set variable (variable - decrease-by)
+  ifelse variable < min-limit
+  [
+    set variable min-limit
+    sonify-event out-of-range-sound-file 0.5 0
+  ]
+  [ sonify-slider variable min-limit max-limit ]
+  report precision variable prec
+end
+
+
+; Copyright 2001 Uri Wilensky.
+; See Info tab for full copyright and license.

@@ -1,0 +1,403 @@
+extensions [ sound soundx midi ]
+
+globals [
+  was-reset
+  sum-of-spins   ;; sum of all the spins -- keeping track of this
+                 ;; means that we can always instantly calculate
+                 ;; the magnetization (which is the average spin)
+
+  ;; boundaries for sliders
+  min-probability-of-spin-up max-probability-of-spin-up
+  min-temperature            max-temperature
+  min-window-stride          max-window-stride
+  min-window-radius          max-window-radius
+
+  ;; sonification variables
+  positive-majority?
+  watch-patch-x watch-patch-y ;; the coordinates for the location of the center of the viewing window
+
+  ;; constants for soundx extension
+  current-folder ; the path to the current folder of the model
+  out-of-range-sound-file ; the name of the sound to be played when an increase/decrease button is pressed while the slider is at its limit
+  center-crossing-sound-file                 ;; the name of the sound file to be played when a window passes a central axis (vertical or horizontal) of the world
+
+  old-sonify-magnetization?
+  old-sonify-patch-neighbours?
+  old-sonify-patch-window?
+]
+
+patches-own [
+  spin           ;; holds -1 or 1
+]
+
+to setup
+  let bk-was-reset was-reset
+  clear-all
+  init-constants
+  ifelse reset-on-setup? or bk-was-reset = 0
+  [ init-variables ]
+  [ reset-old-flags ]
+  set was-reset 1
+  init-sounds
+  ask patches [
+    ifelse random 100 < probability-of-spin-up
+      [ set spin  1 ]
+      [ set spin -1 ]
+    recolor
+  ]
+  set sum-of-spins sum [ spin ] of patches
+  reset-ticks
+end
+
+to reset-old-flags
+  set old-sonify-magnetization? false
+  set old-sonify-patch-neighbours? false
+  set old-sonify-patch-window? false
+end
+
+to init-constants
+  set min-probability-of-spin-up 0
+  set max-probability-of-spin-up 100
+  set min-temperature 0
+  set max-temperature 10
+  set min-window-stride 1
+  set max-window-stride 40
+  set min-window-radius 0
+  set max-window-radius 39
+  set positive-majority? false
+
+  set current-folder word soundx:CURRENT-DIR "/"
+  set out-of-range-sound-file word current-folder "Navajo_drum_short.wav"
+  set center-crossing-sound-file word current-folder "telephone1.wav"
+end
+
+to init-variables
+  set sonify-magnetization? false
+  set sonify-patch-neighbours? false
+  set sonify-patch-window? false
+
+  set watch-patch-x 0
+  set watch-patch-y 0
+
+  update-old-flags
+end
+
+to init-sounds
+  midi:conductor.stop
+  midi:all.notes.off 1
+  midi:all.notes.off 2
+  midi:all.notes.off 3
+  midi:all.notes.off 4
+
+  midi:conductor.clear.sheets
+  midi:conductor.setplaymode.endless
+
+  midi:instrument 1 audiograph-instrument1 + 1
+  midi:instrument 2 audiograph-instrument2 + 1
+  midi:instrument 3 audiograph-instrument1 + 1
+  midi:instrument 4 audiograph-instrument1 + 1
+
+end
+
+to update-old-flags
+  set old-sonify-magnetization? sonify-magnetization?
+  set old-sonify-patch-neighbours? sonify-patch-neighbours?
+  set old-sonify-patch-window? sonify-patch-window?
+end
+
+to go
+  ;; update 1000 patches at a time
+  repeat 1000 [
+    ask one-of patches [ update ]
+  ]
+  tick-advance 1000  ;; use `tick-advance`, as we are updating 1000 patches at a time
+  update-plots       ;; unlike `tick`, `tick-advance` doesn't update the plots, so we need to do so explicitly
+
+  sonify-model
+end
+
+to sonify-model
+  if not old-sonify-patch-neighbours? and sonify-patch-neighbours? [ set sonify-patch-window? false ]
+  if not old-sonify-patch-window? and sonify-patch-window? [ set sonify-patch-neighbours? false ]
+
+  let sonification-current-flags []
+  set sonification-current-flags ( lput sonify-magnetization? sonification-current-flags )
+  set sonification-current-flags ( lput sonify-patch-neighbours? sonification-current-flags )
+  set sonification-current-flags ( lput sonify-patch-window? sonification-current-flags )
+  let active-audiographs ( count-active-audiographs sonification-current-flags )
+  let current-active 0
+
+  if sonify-magnetization? != old-sonify-magnetization? [ toggle-magnetization-audiograph-sonification ]
+  if sonify-magnetization? [
+    adjust-magnetization-audiograph-sonification
+    ifelse audiograph-sonification-orientation?
+    [
+      midi:pan 1 ( get-pan current-active active-audiographs )
+      midi:pan 2 ( get-pan current-active active-audiographs )
+    ]
+    [
+      midi:pan 1 0
+      midi:pan 2 0
+    ]
+    set current-active ( current-active + 1)
+  ]
+
+  if sonify-patch-neighbours? != old-sonify-patch-neighbours? [ toggle-watch-patch sonify-patch-neighbours? print "hmm" ]
+  if sonify-patch-neighbours? [
+    adjust-neighbours-sound 4 1 8
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 4 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 4 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  if sonify-patch-window? != old-sonify-patch-window? [ toggle-window ]
+  if sonify-patch-window? [
+    adjust-neighbours-sound 3 window-radius ( ( ( 2 * window-radius + 1 ) ^ 2 ) - 1 )
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 3 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 3 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  update-old-flags
+end
+
+to stop-sonification
+  set sonify-magnetization? false
+  set sonify-patch-neighbours? false
+  set sonify-patch-window? false
+
+  sonify-model
+end
+
+;; update the spin of a single patch
+to update  ;; patch procedure
+  ;; flipping changes the sign on our energy,
+  ;; so the difference in energy, if we flip,
+  ;; is -2 times our current energy
+  let Ediff 2 * spin * sum [ spin ] of neighbors4
+  if (Ediff <= 0) or (temperature > 0 and (random-float 1.0 < exp ((- Ediff) / temperature))) [
+    set spin (- spin)
+    set sum-of-spins sum-of-spins + 2 * spin
+    recolor
+  ]
+end
+
+;; color the patches according to their spin
+to recolor  ;; patch procedure
+  ifelse sonify-patch-neighbours? and pxcor = watch-patch-x and pycor = watch-patch-y
+  [ set pcolor yellow + spin ]
+  [
+    ifelse sonify-patch-window? and ((pxcor <= max-pxcor and pxcor >= min-pxcor and (abs (pxcor - watch-patch-x) = (window-radius + 1)) and pycor <= max-pycor and pycor >= min-pycor and (abs (pycor - watch-patch-y) <= (window-radius + 1))) or
+           (pxcor <= max-pxcor and pxcor >= min-pxcor and (abs (pxcor - watch-patch-x) <= (window-radius + 1)) and pycor <= max-pycor and pycor >= min-pycor and (abs (pycor - watch-patch-y) = (window-radius + 1))))
+    [ set pcolor (yellow + spin) ]
+    [
+      ifelse spin = 1
+      [ set pcolor blue + 2 ]
+      [ set pcolor blue - 2 ]
+    ]
+  ]
+end
+
+;; a measure of magnetization, the average of the spins
+to-report magnetization
+  report sum-of-spins / count patches
+end
+
+;; This procedure is called whenever a user tries to increment/decrement the value of a slider outside of defined range
+to make-out-of-range-sound
+  soundx:play-soundfile out-of-range-sound-file 0 0
+end
+
+to make-center-crossing-sound
+  soundx:play-soundfile center-crossing-sound-file 1 0
+end
+
+;; This procedure is called whenever a slider's value is updated, in order to sonify the current value of that slider
+to sonify-slider [ current-value min-value max-value ]
+  sound:play-note (item slider-instrument sound:instruments) 44 round (127 * ((current-value - min-value) / (max-value - min-value))) 0.25
+end
+
+;; This procedure is called whenever a switch value is changed using a corresponding button (not the switch itself)
+to sonify-switch [ current-value ]
+  ifelse current-value
+  [ sound:play-note (item slider-instrument sound:instruments) 44 80 0.25 ]
+  [ sound:play-note (item slider-instrument sound:instruments) 44 25 0.25 ]
+end
+
+to-report count-active-audiographs [ sonification-flags ]
+  let active 0
+  let list-size length sonification-flags
+  while [ list-size > 0 ][
+    if ( item ( list-size - 1) sonification-flags ) [ set active ( active + 1 ) ]
+    set list-size (list-size - 1)
+  ]
+  report active
+end
+
+to-report get-pan [ current-active active-audiographs ]
+  ifelse active-audiographs > 1
+  [
+    if ( current-active mod 3 ) = 0 [ report -1 ]
+    if ( current-active mod 3 ) = 1 [ report 1 ]
+    if ( current-active mod 3 ) = 2 [ report 0 ]
+  ]
+  [ report 0 ]
+end
+
+;; This procedure turns on/off the sonification of the magnetization plot (average magnetization)
+to toggle-magnetization-audiograph-sonification
+  ifelse sonify-magnetization?
+  [
+    ifelse magnetization >= 0
+    [
+      midi:all.notes.off 2
+      midi:noteon 1 audiograph-note1 0.8;( 0.7 * magnetization + 0.3)
+      midi:pitch.bend 1 (magnetization - 0.5) * 2
+      set positive-majority? true
+    ]
+    [
+      midi:all.notes.off 1
+      midi:noteon 2 audiograph-note2 0.8;(-0.7 * magnetization + 0.3)
+      midi:pitch.bend 2 (magnetization + 0.5) * 2
+      set positive-majority? false
+    ]
+  ]
+  [
+    midi:all.notes.off 1
+    midi:all.notes.off 2
+  ]
+end
+
+;; This procedure adjust the volume of the sound produced by the audiograph
+to adjust-magnetization-audiograph-sonification
+  ifelse magnetization >= 0
+  [
+    ifelse not positive-majority?
+    [
+      midi:all.notes.off 2
+      midi:noteon 1 audiograph-note1 0.8;( 0.7 * magnetization + 0.3)
+      midi:pitch.bend 1 (magnetization - 0.5) * 2
+    ]
+    [ midi:pitch.bend 1 (magnetization - 0.5) * 2 ];midi:volume 1 ( 0.7 * magnetization + 0.3) ]
+    set positive-majority? true
+  ]
+  [
+    ifelse positive-majority?
+    [
+      midi:all.notes.off 1
+      midi:noteon 2 audiograph-note2 0.8;(-0.7 * magnetization + 0.3)
+      midi:pitch.bend 2 (magnetization + 0.5) * 2
+    ]
+    [ midi:pitch.bend 2 (magnetization + 0.5) * 2 ];midi:volume 2 (-0.7 * magnetization + 0.3) ]
+    set positive-majority? false
+  ]
+end
+
+to draw-window
+  ask patches with [ (pxcor <= max-pxcor and pxcor >= min-pxcor and (abs (pxcor - watch-patch-x) = (window-radius + 1)) and pycor <= max-pycor and pycor >= min-pycor and (abs (pycor - watch-patch-y) <= (window-radius + 1))) or
+                     (pxcor <= max-pxcor and pxcor >= min-pxcor and (abs (pxcor - watch-patch-x) <= (window-radius + 1)) and pycor <= max-pycor and pycor >= min-pycor and (abs (pycor - watch-patch-y) = (window-radius + 1))) ]
+  [ set pcolor (yellow + spin) ]
+end
+
+to-report count-neighbours-by-spin [ patch-spin radius ]
+  let neighbours 0
+  ask patches with [ (pxcor != watch-patch-x or pycor != watch-patch-y) and (abs ( pxcor - watch-patch-x ) <= radius) and (abs ( pycor - watch-patch-y ) <= radius) and spin = patch-spin ]
+  [ set neighbours (neighbours + 1) ]
+  report neighbours
+end
+
+to toggle-window
+  ifelse sonify-patch-window?
+  [
+    draw-window
+    midi:noteon 3 audiograph-note1 0.8;( ( count-neighbours-by-spin [ spin ] of patch watch-patch-x watch-patch-y window-radius ) / ( (2 * window-radius + 1 ) ^ 2 ) )
+    midi:pitch.bend 3 ( ( ( count-neighbours-by-spin [ spin ] of patch watch-patch-x watch-patch-y window-radius ) / ( (2 * window-radius + 1 ) ^ 2 ) ) - 0.5 ) * 2
+  ]
+  [
+    ask patches with [ pcolor = yellow + 1 and (pxcor != watch-patch-x or pycor != watch-patch-y) ] [ set pcolor blue + 2]
+    ask patches with [ pcolor = yellow - 1 and (pxcor != watch-patch-x or pycor != watch-patch-y) ] [ set pcolor blue - 2]
+    midi:all.notes.off 3
+  ]
+end
+
+to toggle-watch-patch [ is-on? ]
+  ifelse is-on?
+  [
+    watch patch watch-patch-x watch-patch-y
+    ask patches with [ pxcor = watch-patch-x and pycor = watch-patch-y ] [ set pcolor (yellow + spin) ]
+    midi:noteon 4 audiograph-note1 0.8;((count-neighbours-by-spin [ spin ] of patch watch-patch-x watch-patch-y 1) / 8)
+    midi:pitch.bend 4 (((count-neighbours-by-spin [ spin ] of patch watch-patch-x watch-patch-y 1) / 8) - 0.5) * 2
+  ]
+  [
+    reset-perspective
+    ask patches with [ pcolor = yellow + 1 ] [ set pcolor blue + 2 ]
+    ask patches with [ pcolor = yellow - 1 ] [ set pcolor blue - 2 ]
+    midi:all.notes.off 4
+  ]
+end
+
+to adjust-neighbours-sound [ sheet radius neighbours-in-window ]
+  midi:pitch.bend sheet (((count-neighbours-by-spin ( [ spin ] of patch watch-patch-x watch-patch-y ) radius) / neighbours-in-window) - 0.5) * 2
+end
+
+to window-shifted-actions [ x-shift y-shift ]
+  set watch-patch-x (watch-patch-x + x-shift)
+  set watch-patch-y (watch-patch-y + y-shift)
+
+  if sonify-patch-neighbours?
+  [
+    toggle-watch-patch false
+    toggle-watch-patch true
+  ]
+  if sonify-patch-window?
+  [
+    ask patches
+    [
+      ifelse spin > 0
+      [ set pcolor blue + 2 ]
+      [ set pcolor blue - 2 ]
+    ]
+    draw-window
+  ]
+end
+
+to shift-window-up
+  ifelse (watch-patch-y + window-stride) <= max-pycor and (sonify-patch-neighbours? or sonify-patch-window?)
+  [
+    if ((watch-patch-y + window-stride) * watch-patch-y) <= 0 [ make-center-crossing-sound ]
+    window-shifted-actions 0 window-stride
+  ]
+  [ make-out-of-range-sound ]
+end
+
+to shift-window-right
+  ifelse (watch-patch-x + window-stride) <= max-pxcor and (sonify-patch-neighbours? or sonify-patch-window?)
+  [
+    if ((watch-patch-x + window-stride) * watch-patch-x) <= 0 [ make-center-crossing-sound ]
+    window-shifted-actions window-stride 0
+  ]
+  [ make-out-of-range-sound ]
+end
+
+to shift-window-left
+  ifelse (watch-patch-x - window-stride) >= min-pxcor and (sonify-patch-neighbours? or sonify-patch-window?)
+  [
+    if ((watch-patch-x - window-stride) * watch-patch-x) <= 0 [ make-center-crossing-sound ]
+    window-shifted-actions ((-1) * window-stride) 0
+  ]
+  [ make-out-of-range-sound ]
+end
+
+to shift-window-down
+  ifelse (watch-patch-y - window-stride) >= min-pycor and (sonify-patch-neighbours? or sonify-patch-window?)
+  [
+    if ((watch-patch-y - window-stride) * watch-patch-y) <= 0 [ make-center-crossing-sound ]
+    window-shifted-actions 0 ((-1) * window-stride)
+  ]
+  [ make-out-of-range-sound ]
+end
+
+; Copyright 2003 Uri Wilensky.
+; See Info tab for full copyright and license.

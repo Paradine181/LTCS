@@ -1,0 +1,544 @@
+extensions [ sound soundx midi ]
+
+turtles-own [
+  temp                ;; this turtle's temperature
+  neighboring-turtles ;; agentset of surrounding turtles
+  sides-exposed       ;; how many sides turtle has exposed
+]
+
+globals [
+  was-reset
+  ave-metal-temp   ;; shows average temperature of all metal
+  num-frozen       ;; keeps track of how many atoms are frozen
+  temp-range       ;; for histogram
+  colors           ;; used both to color turtles, and for histogram
+  pens             ;; keeps track of all the histogram's pen names
+
+  ;; variables for sonification
+  watch-patch-x watch-patch-y ;; the coordinates for the location of the center of the viewing window
+  headings-list               ;; set of all the different headings of turtles in the viewing window
+  turtles-in-window           ;; number of turtles in the viewing window
+
+  ;; boundaries for sliders
+  min-room-temp               max-room-temp
+  min-init-metal-temp         max-init-metal-temp
+  min-melting-temp            max-melting-temp
+  min-width                   max-width
+  min-height                  max-height
+  min-window-radius           max-window-radius
+  min-window-stride           max-window-stride
+  min-inner-ranges-factoring  max-inner-ranges-factoring
+
+  ;; constants for soundx extension
+  current-folder                             ;; the path to the current folder of the model
+  out-of-range-sound-file                    ;; the name of the sound to be played when an increase/decrease button is pressed while the slider is at its limit
+  center-crossing-sound-file                 ;; the name of the sound file to be played when a window passes a central axis (vertical or horizontal) of the world
+
+  old-toggle-window?
+  old-average-metal-temperature?
+  old-number-solidified?
+  range-notes
+  sonify-range
+  old-sonify-range
+  ;range-history
+  average-metal-temperature-history
+  number-solidified-history
+]
+
+to setup
+  let bk-was-reset was-reset
+  clear-all
+  set colors sentence (white - 1) [cyan sky blue violet magenta red]
+  init-constants
+  if reset-on-setup? or bk-was-reset = 0 [ init-variables ]
+  set was-reset 1
+  init-sounds
+  set pens []
+  set temp-range (init-metal-temp - melting-temp) / (length colors - 1)
+  ;; create turtles everywhere inside the given box range
+  ask patches [
+    if (not circle? and ((abs pycor) < height / 2) and ((abs pxcor) < width / 2))
+       or (circle? and distancexy 0 0 < height / 2)
+    [
+      sprout 1
+      [
+        set shape "T"
+        set temp init-metal-temp
+        set-color
+      ]
+    ]
+  ]
+  ask turtles [
+    set neighboring-turtles (turtles at-points [[-1  1] [ 0  1] [1  1]
+                                                [-1  0] [ 0  0] [1  0]
+                                                [-1 -1] [ 0 -1] [1 -1]])
+    set sides-exposed (9 - (count neighboring-turtles))
+  ]
+  set ave-metal-temp init-metal-temp
+  reset-ticks
+end
+
+to init-constants
+  set min-room-temp -20
+  set max-room-temp 100
+  set min-init-metal-temp 1550
+  set max-init-metal-temp 2500
+  set min-melting-temp 500
+  set max-melting-temp 1500
+  set min-width 1
+  set max-width 31
+  set min-height 1
+  set max-height 31
+  set min-window-radius 0
+  set max-window-radius 15
+  set min-window-stride 1
+  set max-window-stride 32
+  set min-inner-ranges-factoring 0
+  set max-inner-ranges-factoring 4
+
+  set range-notes []
+  set range-notes lput range-1-sonification-note range-notes
+  set range-notes lput range-2-sonification-note range-notes
+  set range-notes lput range-3-sonification-note range-notes
+  set range-notes lput range-4-sonification-note range-notes
+  set range-notes lput range-5-sonification-note range-notes
+  set range-notes lput range-6-sonification-note range-notes
+  set range-notes lput range-7-sonification-note range-notes
+  set sonify-range []
+  set sonify-range lput sonify-1st-range? sonify-range
+  set sonify-range lput sonify-2nd-range? sonify-range
+  set sonify-range lput sonify-3rd-range? sonify-range
+  set sonify-range lput sonify-4th-range? sonify-range
+  set sonify-range lput sonify-5th-range? sonify-range
+  set sonify-range lput sonify-6th-range? sonify-range
+  set sonify-range lput sonify-7th-range? sonify-range
+  set old-sonify-range []
+  set old-sonify-range lput sonify-1st-range? old-sonify-range
+  set old-sonify-range lput sonify-2nd-range? old-sonify-range
+  set old-sonify-range lput sonify-3rd-range? old-sonify-range
+  set old-sonify-range lput sonify-4th-range? old-sonify-range
+  set old-sonify-range lput sonify-5th-range? old-sonify-range
+  set old-sonify-range lput sonify-6th-range? old-sonify-range
+  set old-sonify-range lput sonify-7th-range? old-sonify-range
+
+  ;set range-history []
+  ;set range-history lput [] range-history
+  ;set range-history lput [] range-history
+  ;set range-history lput [] range-history
+  ;set range-history lput [] range-history
+  ;set range-history lput [] range-history
+  ;set range-history lput [] range-history
+  ;set range-history lput [] range-history
+
+  set average-metal-temperature-history []
+  set number-solidified-history []
+
+  set current-folder word soundx:CURRENT-DIR "/"
+  set out-of-range-sound-file word current-folder "Navajo_drum_short.wav"
+  set center-crossing-sound-file word current-folder "telephone1.wav"
+end
+
+to init-variables
+  set toggle-window? false
+  set watch-patch-x 0
+  set watch-patch-y 0
+  set turtles-in-window 0
+  set headings-list []
+  set toggle-window? false
+  set average-metal-temperature? false
+  set number-solidified? false
+  set sonify-1st-range? false
+  set sonify-2nd-range? false
+  set sonify-3rd-range? false
+  set sonify-4th-range? false
+  set sonify-5th-range? false
+  set sonify-6th-range? false
+  set sonify-7th-range? false
+end
+
+to init-sounds
+  midi:conductor.stop
+  midi:all.notes.off 1
+  midi:all.notes.off 2
+  midi:all.notes.off 3
+  midi:all.notes.off 4
+  midi:all.notes.off 5
+  midi:all.notes.off 6
+  midi:all.notes.off 7
+  midi:all.notes.off 8
+  midi:all.notes.off 9
+  midi:all.notes.off 11
+
+  midi:conductor.clear.sheets
+  midi:conductor.setplaymode.endless
+
+  midi:instrument  1 range-1-sonification-instrument + 1
+  midi:instrument  2 range-2-sonification-instrument + 1
+  midi:instrument  3 range-3-sonification-instrument + 1
+  midi:instrument  4 range-4-sonification-instrument + 1
+  midi:instrument  5 range-5-sonification-instrument + 1
+  midi:instrument  6 range-6-sonification-instrument + 1
+  midi:instrument  7 range-7-sonification-instrument + 1
+  midi:instrument  8 window-sonification-instrument + 1
+  midi:instrument  9 average-metal-temperature-sonification-instrument + 1
+  midi:instrument 11 number-solidified-sonification-instrument + 1
+end
+
+to update-old-flags
+  set old-toggle-window? toggle-window?
+  set old-average-metal-temperature? average-metal-temperature?
+  set old-number-solidified? number-solidified?
+
+  let index 0
+  foreach sonify-range [
+    set old-sonify-range (replace-item index old-sonify-range (item index sonify-range))
+    set index (index + 1)
+  ]
+end
+
+to go
+  ;; stop if all turtles are below melting temp
+  if (max ([temp] of turtles) < melting-temp) [ stop ]
+  ;; otherwise...
+  set num-frozen 0
+  set headings-list []
+  ask turtles [ cool-turtles ]
+  ask turtles [ set-color ]
+  ask turtles [ rotate ]
+  count-headings-in-window
+  set ave-metal-temp (mean [temp] of turtles)
+
+  sonify-model
+
+  tick
+end
+
+to sonify-model
+  let sonification-current-flags []
+  set sonification-current-flags ( lput average-metal-temperature? sonification-current-flags )
+  set sonification-current-flags ( lput number-solidified? sonification-current-flags )
+  set sonification-current-flags ( lput sonify-1st-range? sonification-current-flags )
+  set sonification-current-flags ( lput sonify-2nd-range? sonification-current-flags )
+  set sonification-current-flags ( lput sonify-3rd-range? sonification-current-flags )
+  set sonification-current-flags ( lput sonify-4th-range? sonification-current-flags )
+  set sonification-current-flags ( lput sonify-5th-range? sonification-current-flags )
+  set sonification-current-flags ( lput sonify-6th-range? sonification-current-flags )
+  set sonification-current-flags ( lput sonify-7th-range? sonification-current-flags )
+  let active-audiographs ( count-active-audiographs sonification-current-flags )
+  let current-active 0
+
+  if toggle-window? != old-toggle-window? [ toggle-window toggle-window? ]
+
+  if average-metal-temperature? != old-average-metal-temperature? [ toggle-audiograph-sonification average-metal-temperature? 9 average-metal-temperature-sonification-note (ave-metal-temp / init-metal-temp)  0 1 ]
+  if average-metal-temperature? [
+    ifelse length average-metal-temperature-history < history-size
+    [ set average-metal-temperature-history lput (ave-metal-temp / init-metal-temp) average-metal-temperature-history ]
+    [ set average-metal-temperature-history but-first lput (ave-metal-temp / init-metal-temp) average-metal-temperature-history ]
+
+    adjust-audiograph-sonification 9 (ave-metal-temp / init-metal-temp) 0 1 average-metal-temperature-history
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 9 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 9 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  if number-solidified? != old-number-solidified? [ toggle-audiograph-sonification number-solidified? 11 number-solidified-sonification-note (num-frozen / count turtles) 0 1 ]
+  if number-solidified? [
+    ifelse length number-solidified-history < history-size
+    [ set number-solidified-history lput (num-frozen / count turtles) number-solidified-history ]
+    [ set number-solidified-history but-first lput (num-frozen / count turtles) number-solidified-history ]
+
+    adjust-audiograph-sonification 11 (num-frozen / count turtles) 0 1 number-solidified-history
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 11 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 11 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  set sonify-range (replace-item 0 sonify-range sonify-1st-range?)
+  set sonify-range (replace-item 1 sonify-range sonify-2nd-range?)
+  set sonify-range (replace-item 2 sonify-range sonify-3rd-range?)
+  set sonify-range (replace-item 3 sonify-range sonify-4th-range?)
+  set sonify-range (replace-item 4 sonify-range sonify-5th-range?)
+  set sonify-range (replace-item 5 sonify-range sonify-6th-range?)
+  set sonify-range (replace-item 6 sonify-range sonify-7th-range?)
+
+  let index 0
+  foreach sonify-range [
+    let channel (index + 1)
+    let note (item index range-notes)
+    let start? (item index sonify-range)
+    let col (item index colors)
+
+    if (start? != (item index old-sonify-range)) and histogram? [ toggle-histogram-range-sonification channel note start? ]
+    if start? and histogram? [
+      ;let r-list item index range-history
+      ;ifelse length r-list < history-size
+      ;[ set r-list lput (num-frozen / count turtles) r-list ]
+      ;[ set r-list but-first lput (num-frozen / count turtles) r-list ]
+
+      adjust-histogram-range-sonification channel col; r-list
+
+      ifelse audiograph-sonification-orientation?
+      [ midi:pan channel ( get-pan current-active active-audiographs ) ]
+      [ midi:pan channel 0 ]
+      set current-active ( current-active + 1)
+    ]
+
+    set index (index + 1)
+  ]
+
+  update-old-flags
+end
+
+to stop-sonification
+  set toggle-window? false
+  set average-metal-temperature? false
+  set number-solidified? false
+  set sonify-1st-range? false
+  set sonify-2nd-range? false
+  set sonify-3rd-range? false
+  set sonify-4th-range? false
+  set sonify-5th-range? false
+  set sonify-6th-range? false
+  set sonify-7th-range? false
+
+  sonify-model
+end
+
+;; turtle procedure -- if metal is liquid and it is next to a solid,
+;; change its heading to that of the solid; otherwise, just rotate
+;; randomly
+to rotate
+  if (temp >= melting-temp) [
+    let frozen-neighbors (neighboring-turtles with [temp <= melting-temp])
+    ifelse (any? frozen-neighbors)
+      [ set heading ([heading] of (one-of frozen-neighbors)) ]
+      [ rt random-float 360 ]
+  ]
+end
+
+
+;; turtle procedure -- sets turtle's temp to ave temp of all
+;; neighboring turtles and patches added turtle's own temp in twice so
+;; it changes more slowly
+to cool-turtles
+  let total-temp ((sum [temp] of neighboring-turtles) + (room-temp * sides-exposed) + temp)
+  set temp (total-temp / 10)
+end
+
+;; turtle procedure
+to set-color
+  ;; create index ranging from 1 to 8 for all melting colors
+  let index (floor ((temp - melting-temp) / temp-range)) + 1
+  ifelse (index < 0 ) [
+    set color white - 1
+    set num-frozen (num-frozen + 1)
+  ]
+  [
+    if index >= length colors
+      [ set index (length colors) - 1 ]
+    set color item index colors
+  ]
+end
+
+;; This procedure is called whenever a user tries to increment/decrement the value of a slider outside of defined range
+to make-out-of-range-sound
+  soundx:play-soundfile out-of-range-sound-file 0 0
+end
+
+to make-center-crossing-sound
+  soundx:play-soundfile center-crossing-sound-file 1 0
+end
+
+;; This procedure is called whenever a slider's value is updated, in order to sonify the current value of that slider
+to sonify-slider [ current-value min-value max-value ]
+  sound:play-note (item slider-instrument sound:instruments) 44 round (127 * ((current-value - min-value) / (max-value - min-value))) 0.25
+end
+
+;; This procedure is called whenever a switch value is changed using a corresponding button (not the switch itself)
+to sonify-switch [ current-value ]
+  ifelse current-value
+  [ sound:play-note (item slider-instrument sound:instruments) 44 80 0.25 ]
+  [ sound:play-note (item slider-instrument sound:instruments) 44 25 0.25 ]
+end
+
+to sonify-event [ sound-file volume pan ]
+  soundx:play-soundfile sound-file (12 * (volume - 0.5)) pan ; expecting volume to be in the range 0-1 (like in midi extension)
+end
+
+to-report count-active-audiographs [ sonification-flags ]
+  let active 0
+  let list-size length sonification-flags
+  while [ list-size > 0 ][
+    if ( item ( list-size - 1) sonification-flags ) [ set active ( active + 1 ) ]
+    set list-size (list-size - 1)
+  ]
+  report active
+end
+
+to-report get-pan [ current-active active-audiographs ]
+  ifelse active-audiographs > 1
+  [
+    if ( current-active mod 3 ) = 0 [ report -1 ]
+    if ( current-active mod 3 ) = 1 [ report 1 ]
+    if ( current-active mod 3 ) = 2 [ report 0 ]
+  ]
+  [ report 0 ]
+end
+
+to toggle-window [ is-on? ]
+  ifelse is-on? [
+    ask patches [
+      if (pxcor <= max-pxcor and pxcor >= min-pxcor and (abs (pxcor - watch-patch-x) = (window-radius + 1)) and pycor <= max-pycor and pycor >= min-pycor and (abs (pycor - watch-patch-y) <= (window-radius + 1))) or
+         (pxcor <= max-pxcor and pxcor >= min-pxcor and (abs (pxcor - watch-patch-x) <= (window-radius + 1)) and pycor <= max-pycor and pycor >= min-pycor and (abs (pycor - watch-patch-y) = (window-radius + 1)))
+      [ set pcolor yellow ]
+    ]
+    count-headings-in-window
+    midi:noteon 8 window-sonification-note 0.8
+    ifelse turtles-in-window = 0
+    [ midi:pitch.bend 8 -1 ]
+    [ if toggle-window? [ midi:pitch.bend 8 (((length headings-list) / turtles-in-window) - 0.5) * 2 ] ]
+  ]
+  [
+    ask patches [ set pcolor black ]
+    midi:all.notes.off 8
+  ]
+end
+
+to adjust-window-sonification
+  ifelse turtles-in-window = 0
+  [ midi:pitch.bend 8 -1 ]
+  [ if toggle-window? [ midi:pitch.bend 8 (((length headings-list) / turtles-in-window) - 0.5) * 2 ] ]
+end
+
+to count-headings-in-window
+  set headings-list []
+  set turtles-in-window 0
+  ask turtles [
+    if toggle-window? and (is-in-window? xcor ycor)
+    [
+      if (not member? heading headings-list) [ set headings-list lput heading headings-list ]
+      set turtles-in-window (turtles-in-window + 1)
+    ]
+  ]
+  adjust-window-sonification
+end
+
+to-report is-in-window? [ x-cor y-cor ]
+  report (x-cor <= (watch-patch-x + window-radius) and x-cor >= (watch-patch-x - window-radius) and y-cor <= (watch-patch-y + window-radius) and y-cor >= (watch-patch-y - window-radius))
+end
+
+to window-shifted-actions [ x-shift y-shift ]
+  set watch-patch-x (watch-patch-x + x-shift)
+  set watch-patch-y (watch-patch-y + y-shift)
+  toggle-window false ; remove previous window
+  toggle-window true ; draw new window
+  count-headings-in-window
+
+  if (x-shift != 0 and (watch-patch-x * (watch-patch-x - x-shift) <= 0)) or
+     (y-shift != 0 and (watch-patch-y * (watch-patch-y - y-shift) <= 0)) [ make-center-crossing-sound ]
+end
+
+to shift-window-up
+  ifelse (watch-patch-y + window-stride) <= max-pycor and toggle-window?
+  [ window-shifted-actions 0 window-stride ]
+  [ make-out-of-range-sound ]
+end
+
+to shift-window-right
+  ifelse (watch-patch-x + window-stride) <= max-pxcor and toggle-window?
+  [ window-shifted-actions window-stride 0 ]
+  [ make-out-of-range-sound ]
+end
+
+to shift-window-left
+  ifelse (watch-patch-x - window-stride) >= min-pxcor and toggle-window?
+  [ window-shifted-actions ((-1) * window-stride) 0 ]
+  [ make-out-of-range-sound ]
+end
+
+to shift-window-down
+  ifelse (watch-patch-y - window-stride) >= min-pycor and toggle-window?
+  [ window-shifted-actions 0 ((-1) * window-stride) ]
+  [ make-out-of-range-sound ]
+end
+
+to toggle-histogram-range-sonification [ channel note start? ]
+  ifelse start?
+  [ midi:noteon channel note 0.8 ]
+  [ midi:all.notes.off channel ]
+end
+
+to adjust-histogram-range-sonification [ channel col ]
+  let boost 0
+  if channel > 1 and channel < 7 [
+    set boost 1
+  ]
+  midi:pitch.bend channel (((count turtles with [ color = col ] / count turtles ) - 0.5) * 2 + boost) * inner-ranges-factoring
+end
+
+to toggle-audiograph-sonification [ start? channel note current-value min-value max-value ]
+  let min-volume min-value
+  let max-volume max-value
+  let current-volume current-value
+
+  ifelse start? [
+    if min-value != 0 [
+      set min-volume 0
+      set max-volume (max-value - min-value)
+      set current-volume (current-value - min-value)
+    ]
+    midi:noteon channel note 0.8
+    ifelse max-value != 0
+    [ midi:pitch.bend channel ((current-value / max-value) - 0.5 ) * 2 ]
+    [ midi:pitch.bend channel -1 ]
+  ]
+  [ midi:all.notes.off channel ]
+end
+
+to adjust-audiograph-sonification [ channel current-value min-value max-value history ]
+  if sonify-from-history? and length history > 0 [
+    set min-value min history
+    set max-value max history
+  ]
+  let min-volume min-value
+  let max-volume max-value
+  let current-volume current-value
+
+  if min-value != 0 [
+    set min-volume 0
+    set max-volume (max-value - min-value)
+    set current-volume (current-value - min-value)
+  ]
+  ifelse max-volume != 0
+  [ midi:pitch.bend channel ((current-volume / max-volume) - 0.5 ) * 2 ]
+  [ midi:pitch.bend channel -1 ]
+end
+
+to-report increase-slider-value [ variable increase-by min-limit max-limit prec ]
+  set variable (variable + increase-by)
+  ifelse variable > max-limit
+  [
+    set variable max-limit
+    sonify-event out-of-range-sound-file 0.5 0
+  ]
+  [ sonify-slider variable min-limit max-limit ]
+  report precision variable prec
+end
+
+to-report decrease-slider-value [ variable decrease-by min-limit max-limit prec ]
+  set variable (variable - decrease-by)
+  ifelse variable < min-limit
+  [
+    set variable min-limit
+    sonify-event out-of-range-sound-file 0.5 0
+  ]
+  [ sonify-slider variable min-limit max-limit ]
+  report precision variable prec
+end
+
+; Copyright 2002 Uri Wilensky.
+; See Info tab for full copyright and license.
