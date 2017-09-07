@@ -1,0 +1,441 @@
+html {
+    width: 100%;
+    height: 100%;
+}
+
+body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+
+    display: flex;
+    position: relative;
+    flex-direction: column;
+}
+
+.main-header {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+
+    background-color: #000000;
+}
+
+.main-header > img {
+    flex: 0 0 auto;
+}
+
+.main-header > h1 {
+    padding-left: 1em;
+
+    flex: 0 0 auto;
+
+    color: #FF8F00;
+    font-family: 'Sofia';
+    font-weight: bold;
+}
+
+section {
+    height: 100%;
+
+    flex: 1 1 auto;
+    display: flex;
+}
+
+section > nav {
+    padding: 1em;
+    width: 13em;
+    overflow-x: hidden;
+    overflow-y: auto;
+
+    flex: 0 0 auto;
+
+    background-color: #009688;
+}
+
+section > nav > header > h2 {
+    margin: 0;
+    padding-bottom: 0.5em;
+
+    display: none;
+    visibility: hidden;
+
+    color: #FFFFFF;
+    font-family: 'Roboto';
+    font-weight: bold;
+}
+
+section > nav > ul {
+    list-style-type: none;
+
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    
+    font-family: 'Roboto';
+    font-size: 10pt;
+}
+
+section > nav > ul > li > .models-list-item {
+    margin: auto 0.5em;
+    border: 0;
+    border-radius: 5px;
+    padding: 0.5em 1em;
+    width: 100%;
+    height: auto;
+
+    background-color: #009688;
+    color: #FFFFFF;
+    outline: 0;
+
+    text-align: left;
+}
+
+section > nav > ul > li > .models-list-item:hover {
+    background-color: #00695C;
+    color: #FFFFFF;
+}
+
+section > nav > ul > li > .models-list-item:active {
+    background-color: #004D40;
+    color: #FFFFFF;
+}
+
+/* Scroll Bar Style */
+section > nav::-webkit-scrollbar {
+    margin-top: 5px;
+    margin-bottom: 5px;
+    width: 10px;
+}
+
+section > nav::-webkit-scrollbar-track {
+    margin-top: 5px;
+    margin-bottom: 5px;
+    border: 1px solid #00695C;
+    border-radius: 5px;
+
+    background-color: #00796B;
+    
+}
+
+section > nav::-webkit-scrollbar-thumb {
+    border: 1px solid #00695C;
+    border-radius: 5px;
+
+    background-color: #4DB6AC;
+}
+
+section > main {
+    flex: 1 1 auto;
+
+    display: flex;
+    flex-direction: column;
+
+    background-color: #E0E0E0;
+}
+
+section > main > header {
+    padding: 1em;
+
+    flex: 0 0 auto;
+    display: flex;
+
+    background-color: #EEEEEE;
+}
+
+section > main > header > h2 {
+    margin: 0 auto 0 0;
+
+    display: inline;
+
+    color: #000000;
+    font-family: 'Roboto';
+    font-weight: bold;
+}
+
+section > main > header > button {
+    margin: auto 0.5em;
+    border: 0;
+    border-radius: 5px;
+    padding: 0.5em 1em;
+    height: auto;
+
+    background-color: #009688;
+    color: #FFFFFF;
+    outline: 0;
+
+    font-family: 'Roboto';
+}
+
+section > main > header > button:hover {
+    background-color: #00695C;
+    color: #FFFFFF;
+}
+
+section > main > header > button:active {
+    background-color: #004D40;
+    color: #FFFFFF;
+}
+
+section > main > article {
+    width: 100%;
+
+    flex: 1 1 auto;
+    display: flex;
+}
+
+section > main > article > .model-content {
+    padding: 1em;
+    overflow-x: hidden;
+    overflow-y: auto;
+    
+    flex: 1 1 auto;
+}
+
+/* Scroll Bar Style */
+section > main > article > .model-content::-webkit-scrollbar {
+    margin-top: 5px;
+    margin-bottom: 5px;
+    width: 10px;
+}
+
+section > main > article > .model-content::-webkit-scrollbar-track {
+    margin-top: 5px;
+    margin-bottom: 5px;
+    border: 1px solid #616161;
+    border-radius: 5px;
+
+    background-color: #9E9E9E;
+    
+}
+
+section > main > article > .model-content::-webkit-scrollbar-thumb {
+    border: 1px solid #616161;
+    border-radius: 5px;
+
+    background-color: #BDBDBD;
+}
+
+section > main > article > .model-content > header {
+    margin-bottom: 1em;
+}
+
+section > main > article > .model-content > header > h3 {
+    margin: 0;
+
+    color: #546E7A;
+    font-family: 'Roboto';
+    font-weight: bold;
+}
+
+section > main > article > .model-content p {
+    margin: 0;
+
+    color: #000000;
+    font-family: 'Roboto';
+}
+
+section > main > article > .gallery {
+    padding: 1em;
+    width: 12em;
+    overflow-x: hidden;
+    overflow-y: auto;
+
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+
+    background-color: #EEEEEE;
+}
+
+/* Scroll Bar Style */
+section > main > article > .gallery::-webkit-scrollbar {
+    margin-top: 5px;
+    margin-bottom: 5px;
+    width: 10px;
+}
+
+section > main > article > .gallery::-webkit-scrollbar-track {
+    margin-top: 5px;
+    margin-bottom: 5px;
+    border: 1px solid #616161;
+    border-radius: 5px;
+
+    background-color: #9E9E9E;
+    
+}
+
+section > main > article > .gallery::-webkit-scrollbar-thumb {
+    border: 1px solid #616161;
+    border-radius: 5px;
+
+    background-color: #BDBDBD;
+}
+
+section > main > article > .gallery .gallery-object {
+    margin: 1em 0;
+    border: 1px solid #9E9E9E;
+    border-radius: 1em;
+    width: 100%;
+
+    background-color: #9E9E9E;
+}
+
+section > main > article > .gallery img {
+    border-radius: 1em 1em 0 0;
+    width: 100%;
+    height: auto;
+}
+
+section > main > article > .gallery img:hover {
+    opacity: 0.7;
+}
+
+section > main > article > .gallery .gallery-caption {
+    padding: 0.5em;
+    font-family: 'Roboto';
+    font-size: 10pt;
+    text-align: center;
+}
+
+body > footer {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+
+    background-color: #000000;
+}
+
+body > footer > table {
+    flex: 0 0 auto;
+}
+
+body > footer cite {
+    padding: 1em 1em;
+
+    color: #BDBDBD;
+    font-family: 'Roboto';
+
+    display: inline;
+    flex: 0 0 auto;
+}
+
+body > footer .authors-title {
+    padding: 1em 1em 1em 3em;
+
+    color: #EEEEEE;
+    font-family: 'Roboto';
+    font-size: 9pt;
+
+    display: inline;
+    flex: 0 0 auto;
+}
+
+body > footer .authors {
+    padding: 1em 1em 1em 3em;
+
+    color: #BDBDBD;
+    font-family: 'Roboto';
+    font-size: 9pt;
+
+    display: inline;
+    flex: 0 0 auto;
+}
+
+body > footer cite > ul {
+    list-style-type: none;
+
+    margin: 0;
+    padding: 0;
+
+    display: inline;
+}
+
+body > footer .netlogo {
+    margin: 0 0 0 auto;
+
+    flex: 0 0 auto;
+}
+
+body > footer .netlogo a {
+    color: #EEEEEE;
+    font-family: 'Roboto';
+    font-size: 9pt;
+}
+
+body > footer .netlogo img {
+    padding: 0 1em;
+    width: auto;
+    height: 3em;
+    vertical-align: middle;
+}
+
+.gallery-modal {
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+
+    display: none;
+    position: fixed;
+    visibility: hidden;
+    z-index: 1;
+    top: 0;
+    left: 0;
+
+    background-color: rgb(0,0,0); /* Fallback color */
+    background-color: rgba(0,0,0,0.9); /* Black w/ opacity */
+}
+
+.gallery-modal .close {
+    position: absolute;
+    top: 15px;
+    right: 35px;
+
+    color: #f1f1f1;
+    font-size: 40px;
+    font-weight: bold;
+    transition: 0.3s;
+}
+
+.gallery-modal .close:hover,
+.gallery-modal .close:focus {
+    color: #bbb;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.gallery-modal .modal-content {
+    margin: auto;
+    width: 100%;
+    height: 100%;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+.gallery-modal .modal-image {
+    margin: 0 auto;
+    width: 80%;
+    height: auto;
+
+    flex: 0 0 auto;
+    display: block;
+}
+
+.gallery-modal .model-caption {
+    margin: 0 auto;
+    padding: 1em;
+    width: 80%;
+    height: auto;
+
+    flex: 0 0 auto;
+    display: block;
+
+    color: #EEEEEE;
+    font-family: 'Roboto';
+    font-size: 12pt;
+    text-align: center;
+}

@@ -1,0 +1,889 @@
+extensions [sound soundx midi]
+
+breed [ electrons electron ] ; the electrons that will be moving in the single wire
+breed [ anodes anode ] ; the minus side of the battery
+breed [ cathodes cathode ] ; the plus side of the battery
+breed [ nuclei nucleus ] ; the atoms that are static in the wire
+
+electrons-own [ moved ] ; the distance that the electron moved
+
+globals [
+  was-reset
+  ; types of circuits
+  circuit-type-single-wire circuit-type-parallel-circuit circuit-type-serial-circuit
+  ; wires background color
+  wire1-background-color wire2-background-color
+  ; limits of sliders
+  min-number-of-electrons max-number-of-electrons
+  min-voltage             max-voltage
+  min-resistance          max-resistance
+  min-window-shift        max-window-shift
+  ; constants for soundx extension
+  current-folder             ;; the path to the current folder of the model
+  collision-sound-file       ;; the name of the sound to be played on a collision between an electron and an atom
+  follow-electron-sound-file ;; the name of the sound to be played when following an electron
+  dash-electron-sound-file   ;; the name of the sound to be played when dashing an electron
+  out-of-range-sound-file    ;; the name of the sound to be played when an increase/decrease button is pressed while the slider is at its limit
+  ; model variables
+  which-electron ; integer holding the id of the watched electron (if one is being watched)
+  watch-patch-x watch-patch-y ;;coordinates of the window that is used to watch an area
+  window-radius ; the distance between the center of the square and the nearest point on its edge
+  number-of-electrons-wire1 ; number of electrons in wire 1
+  number-of-electrons-wire2 ; number of electrons in wire 2
+  charge-flow1 ; charge flow of the single wire or the right wire in the serial circuit or the top wire in the parallel circuit
+  charge-flow2 ; charge flow of the left wire in the serial circuit or the bottom wire in the parallel circuit
+  collisions1 ; number of collisions in wire #1
+  collisions2 ; number of collisions in wire #2
+  temp-collisions1
+  temp-collisions2
+
+  old-collisions-wire1?
+  old-collisions-wire2?
+  old-current-wire1?
+  old-current-wire2?
+  old-watch-electron?
+  old-watch-area?
+
+  history-collisions1
+  history-collisions2
+  history-current1
+  history-current2
+
+  max-current-wire1 max-current-wire2
+]
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Initialization of the module ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; The setup procedue of the modules.
+;; This procedure initializes the world's size, sets patches color, adds atoms (special patches), adds electrons (turtles) and sets global variables
+to setup
+  let bk-was-reset was-reset
+  clear-all
+  set-default-shape electrons "circle 2"
+
+  initialize-constants ; initialize constant values
+  ifelse reset-on-setup? or bk-was-reset = 0
+  [ initialize-variables ]
+  [ reset-old-flags ]
+  set was-reset 1
+  initialize-globals ; initialize global variables
+  initialize-sounds ; initialize the instruments and notes that will be played when the user chooses to sonify the collisions plot or to dash an electron
+  initialize-world ; initialize the world size and electrical circuit patches
+  initialize-electrons ; initialize the electrons (turtles)
+
+  reset-ticks
+end
+
+to initialize-constants
+  ; constants for soundx files to be used in the module
+  set current-folder word soundx:CURRENT-DIR "/"
+  set collision-sound-file word current-folder "billiard1.wav"
+  set follow-electron-sound-file word current-folder "billiard1.wav"
+  set dash-electron-sound-file word current-folder "telephone1.wav"
+  set out-of-range-sound-file word current-folder "Navajo_drum_short.wav"
+  ; constants for the module initialization
+  set circuit-type-single-wire "Single Wire"
+  set circuit-type-parallel-circuit "Parallel Circuit"
+  set circuit-type-serial-circuit "Serial Circuit"
+  set wire1-background-color gray
+  set wire2-background-color (gray + 3)
+  ; constants for sliders
+  set min-number-of-electrons 400
+  set max-number-of-electrons 800
+  set min-voltage 1
+  set max-voltage 5
+  set min-resistance 10
+  set max-resistance 20
+  set min-window-shift 1
+  set max-window-shift 5
+
+  set history-collisions1 []
+  set history-collisions2 []
+  set history-current1 []
+  set history-current2 []
+end
+
+to initialize-variables
+  set current-wire1? false
+  set collisions-wire1? false
+  set current-wire2? false
+  set collisions-wire2? false
+  set watch-electron? false
+  set watch-area? false
+end
+
+to reset-old-flags
+  set old-collisions-wire1? false
+  set old-current-wire1? false
+  set old-collisions-wire2? false
+  set old-current-wire2? false
+  set old-watch-electron? false
+  set old-watch-area? false
+end
+
+;; This procedure initializes the global values used in this module
+to initialize-globals
+  ; variables
+  set window-radius 2
+  set charge-flow1 0
+  set charge-flow2 0
+  set watch-patch-x 0
+  set watch-patch-y 0
+  set collisions1 0
+  set collisions2 0
+  set temp-collisions1 0
+  set temp-collisions2 0
+  set max-current-wire1 0
+  set max-current-wire2 0
+  ;; fix sliders' values if where somehow set incorrectly
+  if number-of-electrons < min-number-of-electrons [ set number-of-electrons min-number-of-electrons ]
+  if number-of-electrons > max-number-of-electrons [ set number-of-electrons max-number-of-electrons ]
+  if voltage < min-voltage [ set voltage min-voltage ]
+  if voltage > max-voltage [ set voltage max-voltage ]
+  if dash-distance < min-voltage [ set dash-distance voltage ]
+  if dash-distance > (max-voltage * max-voltage) [ set dash-distance voltage ]
+  if resistance-wire1 < min-resistance [ set resistance-wire1 min-resistance ]
+  if resistance-wire1 > max-resistance [ set resistance-wire1 max-resistance ]
+  if resistance-wire2 < min-resistance [ set resistance-wire2 min-resistance ]
+  if resistance-wire2 > max-resistance [ set resistance-wire2 max-resistance ]
+  if shift-window-distance < min-window-shift [ set shift-window-distance min-window-shift ]
+  if shift-window-distance > max-window-shift [ set shift-window-distance max-window-shift ]
+end
+
+;; This procedure initializes the sheets, instruments, notes, timing and volume to be used in the sonification of the collisions plot
+to initialize-sounds
+  midi:conductor.stop
+  midi:all.notes.off 1
+  midi:all.notes.off 2
+  midi:all.notes.off 3
+  midi:all.notes.off 4
+
+  midi:conductor.clear.sheets
+  midi:conductor.setplaymode.endless
+
+  midi:instrument 1 collisions-wire1-audiograph-instrument + 1
+  midi:instrument 2 collisions-wire2-audiograph-instrument + 1
+  midi:instrument 3 currents-wire1-audiograph-instrument + 1
+  midi:instrument 4 currents-wire2-audiograph-instrument + 1
+end
+
+;; This procedure initializes the word's size, atoms (special patches) and calls to a procedure to initialize all the other patches
+to initialize-world
+  if circuit-type = circuit-type-single-wire
+  [
+    resize-world -85 85 -16 16
+    ;; create atoms
+    ask n-of ( resistance-wire1 ^ 2 ) patches with [ pxcor < max-pxcor - 4.5 and pxcor > min-pxcor + 4.5 and not any? nuclei-here and not any? nuclei-on neighbors ]
+    [
+      sprout 1
+      [
+        set breed nuclei
+        set size 2
+        set shape "circle 2"
+        set color blue
+      ]
+    ]
+  ]
+
+  if circuit-type = circuit-type-serial-circuit
+  [
+    resize-world -85 85 -16 16
+    ;; create atoms
+    ;; on the first wire (the darker one)
+    ask n-of ( (resistance-wire1 ^ 2) / 2 ) patches with [ pxcor < max-pxcor - 4.5 and pxcor > 0 and not any? nuclei-here and not any? nuclei-on neighbors and pxcor != 0 ]
+    [
+      sprout 1
+      [
+        set breed nuclei
+        set size 2
+        set shape "circle 2"
+        set color blue
+      ]
+    ]
+    ;; on the second wire (the lighter one)
+    ask n-of ( (resistance-wire2 ^ 2) / 2 ) patches with [ pxcor > min-pxcor + 4.5 and pxcor < 0 and not any? nuclei-here and not any? nuclei-on neighbors and pxcor != 0 ]
+    [
+      sprout 1
+      [
+        set breed nuclei
+        set size 2
+        set shape "circle 2"
+        set color blue
+      ]
+    ]
+  ]
+
+  if circuit-type = circuit-type-parallel-circuit
+  [
+    resize-world -85 85 -33 33
+    ;; create atoms
+    ;; on the first wire (the darker one)
+    ask n-of ( resistance-wire1 ^ 2 ) patches with [ pxcor < max-pxcor - 4.5 and pxcor > min-pxcor + 4.5 and pycor > 0.1 and pycor < max-pycor - 0.1 and not any? nuclei-here and not any? nuclei-on neighbors ]
+    [
+      sprout 1
+      [
+        set breed nuclei
+        set size 2
+        set shape "circle 2"
+        set color blue
+      ]
+    ]
+    ;; on the second wire (the lighter one)
+    ask n-of ( resistance-wire2 ^ 2 ) patches with [ pxcor < max-pxcor - 4.5 and pxcor > min-pxcor + 4.5 and pycor < (-0.1) and pycor > min-pycor + 0.1 and not any? nuclei-here and not any? nuclei-on neighbors ]
+    [
+      sprout 1
+      [
+        set breed nuclei
+        set size 2
+        set shape "circle 2"
+        set color blue
+      ]
+    ]
+  ]
+
+  ;; create labels for the battery terminals
+  ask patches with [pxcor = min-pxcor + 1 and pycor = 0]
+  [
+    sprout 1
+    [
+      set breed cathodes
+      set shape "plus"
+      set size 1.5
+    ]
+  ]
+  ask patches with [pxcor = max-pxcor - 1 and pycor = 0]
+  [
+    sprout 1
+    [
+      set breed anodes
+      set shape "minus"
+      set size 1.5
+    ]
+  ]
+
+  initialize-wire-background
+end
+
+;; This procedure initializes the regular patches in the circuit: the colors of the wire(s),
+to initialize-wire-background
+  ifelse circuit-type = circuit-type-single-wire or circuit-type = circuit-type-serial-circuit
+  [
+    ifelse circuit-type = circuit-type-single-wire
+    [ ;; regular circuit
+      ;; set the patches (background) color to be a single wire
+      ask patches [ set pcolor wire1-background-color]
+    ]
+    [ ;; serial circuit
+      ;; set the patches (background) color to be a single but serial wire (concatenation of two wires)
+      ask patches [ set pcolor wire1-background-color ]
+      ask patches with [pxcor = 0] [ set pcolor white ]
+      ask patches with [pxcor < 0] [ set pcolor wire2-background-color ]
+    ]
+  ]
+  [ ;; parallel circuit
+    ;; set the patches (background) color to be two parallel wires
+    ask patches [ set pcolor wire1-background-color ]
+    ask patches with [pycor = 0] [ set pcolor white ]
+    ask patches with [pycor < 0] [ set pcolor wire2-background-color ]
+  ]
+
+  ask patches with [pxcor >= max-pxcor - 3] [ set pcolor black ] ; now set up the Battery-positive
+  ask patches with [pxcor <= min-pxcor + 3] [ set pcolor red ] ; now set up the Battery-negative
+end
+
+to initialize-electrons
+
+  if circuit-type = circuit-type-single-wire
+  [
+    set number-of-electrons-wire1 number-of-electrons
+    set number-of-electrons-wire2 0
+    ;; create electrons
+    create-turtles number-of-electrons
+    [
+      set breed electrons
+      setxy random-xcor random-ycor
+      set heading random 360
+      set color orange - 2
+      set size 1
+    ]
+  ]
+
+  if circuit-type = circuit-type-serial-circuit
+  [ ;; serial circuit
+    set number-of-electrons-wire1 (number-of-electrons / 2)
+    set number-of-electrons-wire2 (number-of-electrons / 2)
+    ;; create electrons
+    create-turtles number-of-electrons / 2
+    [
+      set breed electrons
+      setxy ((random (max-pxcor - 1)) + 1) random-ycor
+      set heading random 360
+      set color orange - 2
+      set size 1
+    ]
+
+    create-turtles number-of-electrons / 2
+    [
+      set breed electrons
+      setxy ((random (min-pxcor + 1)) - 1) random-ycor
+      set heading random 360
+      set color orange - 2
+      set size 1
+    ]
+  ]
+
+  if circuit-type = circuit-type-parallel-circuit
+  [ ;; parallel circuit
+    set number-of-electrons-wire1 (number-of-electrons / 2)
+    set number-of-electrons-wire2 (number-of-electrons / 2)
+    ;; create electrons
+    create-turtles number-of-electrons / 2
+    [
+      set breed electrons
+      setxy random-xcor ((random (max-pycor - 1)) + 1)
+      set heading random 360
+      set color orange - 2
+      set size 1
+    ]
+
+    create-turtles number-of-electrons / 2
+    [
+      set breed electrons
+      setxy random-xcor ((random (min-pycor + 1)) - 1)
+      set heading random 360
+      set color orange - 2
+      set moved 0
+      set size 1
+    ]
+  ]
+  initialize-wire-background
+end
+
+to go
+  ;; update the size of battery-terminals with values of voltage
+  update-battery-size
+
+  set temp-collisions1 0
+  set temp-collisions2 0
+
+  ;; Rules for electrons
+  ask electrons
+  [
+    ;; electrons-rules for performing simple point collisions
+    ;; with nuclei in the wire and in between two collisions,
+    ;; drifting steadily drifting forward due to the electric field
+    move
+  ]
+
+  set collisions1 temp-collisions1
+  set collisions2 temp-collisions2
+
+  sonify-model
+
+  tick
+end
+
+to update-old-flags
+  set old-collisions-wire1? collisions-wire1?
+  set old-collisions-wire2? collisions-wire2?
+  set old-current-wire1? current-wire1?
+  set old-current-wire2? current-wire2?
+  set old-watch-electron? watch-electron?
+  set old-watch-area? watch-area?
+end
+
+to sonify-model
+  let sonification-current-flags []
+  set sonification-current-flags ( lput collisions-wire1? sonification-current-flags )
+  if number-of-electrons-wire2 > 0 [ set sonification-current-flags ( lput collisions-wire2? sonification-current-flags ) ]
+  set sonification-current-flags ( lput current-wire1? sonification-current-flags )
+  if number-of-electrons-wire2 > 0 [ set sonification-current-flags ( lput current-wire2? sonification-current-flags ) ]
+  let active-audiographs ( count-active-audiographs sonification-current-flags )
+  let current-active 0
+
+  if collisions-wire1? != old-collisions-wire1? [
+    toggle-audiograph-sonification collisions-wire1? 1 collisions-wire1-audiograph-note collisions1 0 number-of-electrons-wire1
+  ]
+
+  if collisions-wire2? != old-collisions-wire2? and number-of-electrons-wire2 > 0 [
+    toggle-audiograph-sonification collisions-wire2? 2 collisions-wire2-audiograph-note collisions2 0 number-of-electrons-wire2
+  ]
+
+  if collisions-wire1? [
+    ifelse length history-collisions1 < history-size
+    [ set history-collisions1 lput collisions1 history-collisions1 ]
+    [ set history-collisions1 but-first lput collisions1 history-collisions1 ]
+
+    adjust-audiograph-sonification 1 collisions1 0 number-of-electrons-wire1 history-collisions1
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 1 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 1 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  if collisions-wire2? and number-of-electrons-wire2 > 0 [
+    ifelse length history-collisions2 < history-size
+    [ set history-collisions2 lput collisions2 history-collisions2 ]
+    [ set history-collisions2 but-first lput collisions2 history-collisions2 ]
+
+    adjust-audiograph-sonification 2 collisions2 0 number-of-electrons-wire2 history-collisions2
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 2 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 2 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  if current-wire1? != old-current-wire1? [
+    ifelse ticks != 0
+    [ toggle-audiograph-sonification current-wire1? 3 currents-wire1-audiograph-note (charge-flow1 / ticks) 0 (max list max-current-wire1 max-current-wire2) ]
+    [ toggle-audiograph-sonification current-wire1? 3 currents-wire1-audiograph-note 0 0 (max list max-current-wire1 max-current-wire2) ]
+  ]
+
+  if current-wire2? != old-current-wire2? and number-of-electrons-wire2 > 0 [
+    ifelse ticks != 0
+    [ toggle-audiograph-sonification current-wire2? 4 currents-wire2-audiograph-note (charge-flow2 / ticks) 0 (max list max-current-wire1 max-current-wire2) ]
+    [ toggle-audiograph-sonification current-wire2? 4 currents-wire2-audiograph-note 0 0 (max list max-current-wire1 max-current-wire2) ]
+  ]
+
+  if current-wire1? [
+    let value1 0
+    if ticks != 0 [ set value1 charge-flow1 / ticks ]
+    ifelse length history-current1 < history-size
+    [ set history-current1 lput value1 history-current1 ]
+    [ set history-current1 but-first lput value1 history-current1 ]
+
+    adjust-audiograph-sonification 3 value1 0 (max list max-current-wire1 max-current-wire2) history-current1
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 3 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 3 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  if current-wire2? and number-of-electrons-wire2 > 0 [
+    let value2 0
+    if ticks != 0 [ set value2 charge-flow2 / ticks ]
+    ifelse length history-current2 < history-size
+    [ set history-current2 lput value2 history-current2 ]
+    [ set history-current2 but-first lput value2 history-current2 ]
+
+    adjust-audiograph-sonification 4 value2 0 (max list max-current-wire1 max-current-wire2) history-current2
+
+    ifelse audiograph-sonification-orientation?
+    [ midi:pan 4 ( get-pan current-active active-audiographs ) ]
+    [ midi:pan 4 0 ]
+    set current-active ( current-active + 1)
+  ]
+
+  if watch-electron? and not old-watch-electron? [
+    set watch-area? false
+  ]
+
+  if watch-area? and not old-watch-area? [
+    set watch-electron? false
+  ]
+
+  if watch-electron? != old-watch-electron? [
+    ifelse watch-electron?
+    [ watch-electron ]
+    [ hide-electron ]
+  ]
+
+  if watch-area? != old-watch-area? [
+    ifelse watch-area?
+    [ watch-patch ]
+    [ hide-patch ]
+  ]
+
+  update-old-flags
+end
+
+to stop-sonification
+  set collisions-wire1? false
+  set collisions-wire2? false
+  set current-wire1? false
+  set current-wire2? false
+  set watch-electron? false
+  set watch-area? false
+
+  sonify-model
+end
+
+to update-battery-size
+  ;; now update the size of Battery-negative
+  ask cathodes [ set size 1.5 + 0.5 * voltage ]
+  ask anodes [ set size 1.5 + 0.5 * voltage ]
+end
+
+to move
+  let current-xcor xcor
+  let current-ycor ycor
+
+  ifelse not any? nuclei-on neighbors
+  [
+    set heading 270
+    fd voltage
+    if (watch-electron? and which-electron = who) and floor ((moved + voltage) / dash-distance) > floor (moved / dash-distance) [ make-dash-electron-sound ]
+    set moved (moved + voltage)
+  ]
+  [
+    if pcolor = wire1-background-color [ set temp-collisions1 (temp-collisions1 + 1) ]
+    if pcolor = wire2-background-color [ set temp-collisions2 (temp-collisions2 + 1) ]
+
+    set heading random 180
+    ifelse circuit-type = circuit-type-parallel-circuit
+    [
+      if ((patch-ahead voltage != nobody) and (([pycor] of patch-ahead voltage) * pycor) > 0)
+      [
+        fd voltage
+        if (watch-electron? and which-electron = who) and floor ((moved + voltage) / dash-distance) > floor (moved / dash-distance) [ make-dash-electron-sound ]
+        set moved (moved + voltage)
+        if (watch-area? and (is-in-window? xcor ycor)) or (watch-electron? and which-electron = who) [ make-sound ]
+      ]
+    ]
+    [
+      fd voltage
+      if (watch-electron? and which-electron = who) and floor ((moved + voltage) / dash-distance) > floor (moved / dash-distance) [ make-dash-electron-sound ]
+      set moved (moved + voltage)
+      if (watch-area? and (is-in-window? xcor ycor)) or (watch-electron? and which-electron = who) [ make-sound ]
+    ]
+  ]
+
+  ;; calculate current
+  if pcolor = red
+   [ pen-up
+     ifelse circuit-type = circuit-type-single-wire
+     [
+       set charge-flow1 charge-flow1 + 1
+       update-max-current 1
+     ]
+     [
+       ifelse circuit-type = circuit-type-parallel-circuit
+       [
+         ifelse ycor > 0
+         [
+           set charge-flow1 charge-flow1 + 1
+           update-max-current 1
+         ]
+         [
+           set charge-flow2 charge-flow2 + 1
+           update-max-current 2
+         ]
+       ]
+       [
+         set charge-flow2 charge-flow2 + 1
+         update-max-current 2
+       ]
+     ]
+
+     hatch 1 [
+       set breed electrons
+       set color orange - 2
+       set moved 0
+       ifelse circuit-type = circuit-type-parallel-circuit
+       [
+         ifelse ycor > 0
+         [ setxy max-pxcor - 4 ((random (max-pycor - 1)) + 1) ]
+         [ setxy max-pxcor - 4 ((random (min-pycor + 1)) - 1) ]
+       ]
+       [ setxy max-pxcor - 4 random-ycor ]
+       pen-up
+     ]
+     if who = which-electron [ set watch-electron? false ]
+     die
+   ]
+
+   if pcolor = white and circuit-type = circuit-type-serial-circuit [
+     pen-up
+     set charge-flow1 charge-flow1 + 1
+     update-max-current 1
+   ]
+end
+
+to update-max-current [ wire ]
+  ifelse wire = 1
+  [ if ticks > 0 [ if (charge-flow1 / ticks) > max-current-wire1 [ set max-current-wire1 (charge-flow1 / ticks) ] ] ]
+  [ if ticks > 0 [ if (charge-flow2 / ticks) > max-current-wire2 [ set max-current-wire2 (charge-flow2 / ticks) ] ] ]
+end
+
+to update-resistance-of-wire [ wire ]
+  if circuit-type = circuit-type-single-wire
+  [
+    if wire = 1
+    [
+      let wire1-nuclei-count count nuclei with [ pcolor = wire1-background-color ] ; number of nuclei currently in wire1
+      if wire1-nuclei-count > (resistance-wire1 ^ 2)
+      [
+        ask n-of ( wire1-nuclei-count - (resistance-wire1 ^ 2) ) nuclei with [ pcolor = wire1-background-color ] [ die ]
+      ]
+
+      if wire1-nuclei-count < (resistance-wire1 ^ 2)
+      [
+        ask n-of ( (resistance-wire1 ^ 2) - wire1-nuclei-count ) patches with [ pxcor < max-pxcor - 4.5 and pxcor > min-pxcor + 4.5 and not any? nuclei-here and not any? nuclei-on neighbors ]
+        [
+          sprout 1
+          [
+            set breed nuclei
+            set size 2
+            set shape "circle 2"
+            set color blue
+          ]
+        ]
+      ]
+    ]
+  ]
+
+  if circuit-type = circuit-type-parallel-circuit
+  [
+    ifelse wire = 1
+    [
+      let wire1-nuclei-count count nuclei with [ pcolor = wire1-background-color ] ; number of nuclei currently in wire1
+      if wire1-nuclei-count > (resistance-wire1 ^ 2)
+      [
+        ask n-of ( wire1-nuclei-count - (resistance-wire1 ^ 2) ) nuclei with [ pcolor = wire1-background-color ] [ die ]
+      ]
+
+      if wire1-nuclei-count < (resistance-wire1 ^ 2)
+      [
+        ask n-of ( (resistance-wire1 ^ 2) - wire1-nuclei-count ) patches with [ pxcor < max-pxcor - 4.5 and pxcor > min-pxcor + 4.5 and pycor > 0.1 and pycor < max-pycor - 0.1 and not any? nuclei-here and not any? nuclei-on neighbors ]
+        [
+          sprout 1
+          [
+            set breed nuclei
+            set size 2
+            set shape "circle 2"
+            set color blue
+          ]
+        ]
+      ]
+    ]
+    [
+      let wire2-nuclei-count count nuclei with [ pcolor = wire2-background-color ] ; number of nuclei currently in wire1
+      if wire2-nuclei-count > (resistance-wire2 ^ 2)
+      [
+        ask n-of ( wire2-nuclei-count - (resistance-wire2 ^ 2) ) nuclei with [ pcolor = wire2-background-color ] [ die ]
+      ]
+
+      if wire2-nuclei-count < (resistance-wire2 ^ 2)
+      [
+        ask n-of ( (resistance-wire2 ^ 2) - wire2-nuclei-count ) patches with [ pxcor < max-pxcor - 4.5 and pxcor > min-pxcor + 4.5 and pycor < (-0.1) and pycor > min-pycor + 0.1 and not any? nuclei-here and not any? nuclei-on neighbors ]
+        [
+          sprout 1
+          [
+            set breed nuclei
+            set size 2
+            set shape "circle 2"
+            set color blue
+          ]
+        ]
+      ]
+    ]
+  ]
+
+  if circuit-type = circuit-type-serial-circuit
+  [
+
+  ]
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Sonification of the module ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; This procedure plays the "collision-sound-file" on a collision between an electron and an atom
+;; (if that electron is being followed, or if the atom is within an observation window).
+;; The volume is decided by the ycor of the electron (lower ycor = higher volume, greater ycor = lower volume)
+;; and the pan of the sound is decided by the xcor (xcor > 0 then sound is panned right (relatively), xcor < 0 then sound is panned left (relatively))
+to make-sound
+  ifelse watch-area?
+  [ soundx:play-soundfile collision-sound-file (6 * ycor / min-pycor) (xcor / max-pxcor) ]
+  [ soundx:play-soundfile follow-electron-sound-file (6 * ycor / min-pycor) (xcor / max-pxcor) ]
+end
+
+;; This procedure is called whenever a user tries to increment/decrement the value of a slider outside of defined range
+to make-out-of-range-sound
+  soundx:play-soundfile out-of-range-sound-file 0 0
+end
+
+to make-dash-electron-sound
+  soundx:play-soundfile dash-electron-sound-file (6 * ycor / min-pycor) (xcor / max-pxcor)
+end
+
+to watch-electron
+  ask electrons [ set color orange - 2 pen-up ]
+  clear-drawing
+  ask one-of electrons with [ xcor > max-pxcor - 10 ]
+  [
+    if pcolor != black
+    [
+      set color yellow
+      pen-down
+      watch-me
+      set watch-electron? true
+      set which-electron who
+    ]
+  ]
+end
+
+to hide-electron
+  ask electrons [ pen-up set color orange - 2 ]
+  reset-perspective
+end
+
+to watch-patch
+  set watch-area? true
+  initialize-wire-background
+  ask patches
+  [
+    if (pxcor < max-pxcor and pxcor > min-pxcor and (abs (pxcor - watch-patch-x) = (window-radius + 1)) and pycor < max-pycor and pycor > min-pycor and (abs (pycor - watch-patch-y) <= (window-radius + 1))) or
+       (pxcor < max-pxcor and pxcor > min-pxcor and (abs (pxcor - watch-patch-x) <= (window-radius + 1)) and pycor < max-pycor and pycor > min-pycor and (abs (pycor - watch-patch-y) = (window-radius + 1)))
+    [ set pcolor yellow ]
+  ]
+end
+
+to hide-patch
+  initialize-wire-background
+end
+
+to-report is-in-window? [ x-cor y-cor ]
+  report (x-cor <= (watch-patch-x + window-radius) and x-cor >= (watch-patch-x - window-radius) and y-cor <= (watch-patch-y + window-radius) and y-cor >= (watch-patch-y - window-radius))
+end
+
+to shift-window-up
+  ifelse (watch-patch-y + shift-window-distance) <= max-pycor and watch-area?
+  [
+    set watch-patch-y (watch-patch-y + shift-window-distance)
+    watch-patch
+  ]
+  [ make-out-of-range-sound ]
+end
+
+to shift-window-right
+  ifelse (watch-patch-x + shift-window-distance) <= max-pxcor and watch-area?
+  [
+    set watch-patch-x (watch-patch-x + shift-window-distance)
+    watch-patch
+  ]
+  [ make-out-of-range-sound ]
+end
+
+to shift-window-left
+  ifelse (watch-patch-x - shift-window-distance) >= min-pxcor and watch-area?
+  [
+    set watch-patch-x (watch-patch-x - shift-window-distance)
+    watch-patch
+  ]
+  [ make-out-of-range-sound ]
+end
+
+to shift-window-down
+  ifelse (watch-patch-y - shift-window-distance) >= min-pycor and watch-area?
+  [
+    set watch-patch-y (watch-patch-y - shift-window-distance)
+    watch-patch
+  ]
+  [ make-out-of-range-sound ]
+end
+
+
+
+
+
+;; This procedure is called whenever a slider's value is updated, in order to sonify the current value of that slider
+to sonify-slider [ current-value min-value max-value ]
+  sound:play-note (item slider-instrument sound:instruments) 44 round (127 * ((current-value - min-value) / (max-value - min-value))) 0.25
+end
+
+;; This procedure is called whenever a switch value is changed using a corresponding button (not the switch itself)
+to sonify-switch [ current-value ]
+  ifelse current-value
+  [ sound:play-note (item slider-instrument sound:instruments) 44 80 0.25 ]
+  [ sound:play-note (item slider-instrument sound:instruments) 44 25 0.25 ]
+end
+
+to sonify-event [ sound-file volume pan ]
+  soundx:play-soundfile sound-file (12 * (volume - 0.5)) pan ; expecting volume to be in the range 0-1 (like in midi extension)
+end
+
+to-report increase-slider-value [ variable increase-by min-limit max-limit prec ]
+  set variable (variable + increase-by)
+  ifelse variable > max-limit
+  [
+    set variable max-limit
+    sonify-event out-of-range-sound-file 0.5 0
+  ]
+  [ sonify-slider variable min-limit max-limit ]
+  report precision variable prec
+end
+
+to-report decrease-slider-value [ variable decrease-by min-limit max-limit prec ]
+  set variable (variable - decrease-by)
+  ifelse variable < min-limit
+  [
+    set variable min-limit
+    sonify-event out-of-range-sound-file 0.5 0
+  ]
+  [ sonify-slider variable min-limit max-limit ]
+  report precision variable prec
+end
+
+to-report count-active-audiographs [ sonification-flags ]
+  let active 0
+  let list-size length sonification-flags
+  while [ list-size > 0 ][
+    if ( item ( list-size - 1) sonification-flags ) [ set active ( active + 1 ) ]
+    set list-size (list-size - 1)
+  ]
+  report active
+end
+
+to-report get-pan [ current-active active-audiographs ]
+  ifelse active-audiographs > 1
+  [
+    if ( current-active mod 2 ) = 0 [ report -1 ]
+    if ( current-active mod 2 ) = 1 [ report 1 ]
+  ]
+  [ report 0 ]
+end
+
+to toggle-audiograph-sonification [ start? channel note current-value min-value max-value ]
+  let min-volume min-value
+  let max-volume max-value
+  let current-volume current-value
+
+  ifelse start? [
+    if min-value != 0 [
+      set min-volume 0
+      set max-volume (max-value - min-value)
+      set current-volume (current-value - min-value)
+    ]
+    midi:noteon channel note 0.8
+    ifelse max-value != 0
+    [ midi:pitch.bend channel ((current-value / max-value) - 0.5 ) * 2 ]
+    [ midi:pitch.bend channel -1 ]
+  ]
+  [ midi:all.notes.off channel ]
+end
+
+to adjust-audiograph-sonification [ channel current-value min-value max-value history ]
+  if sonify-from-history? and length history > 0 [
+    set min-value min history
+    set max-value max history
+  ]
+  let min-volume min-value
+  let max-volume max-value
+  let current-volume current-value
+
+  if min-value != 0 [
+    set min-volume 0
+    set max-volume (max-value - min-value)
+    set current-volume (current-value - min-value)
+  ]
+  ifelse max-volume != 0
+  [ midi:pitch.bend channel ((current-volume / max-volume) - 0.5 ) * 2 ]
+  [ midi:pitch.bend channel -1 ]
+end
