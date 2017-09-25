@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="he" dir="rtl">
 	<head>
 		<meta charset="UTF-8">
   		<meta name="description" content="Listening to Complex Systems">
@@ -9,83 +9,76 @@
         <title>Listening to Complex Systems</title>
 	</head>
 
-	<body>
-        <header class="main-header">
-            <img src="images/logo.png" alt="Listening to Complex Systems" />
-            <h1>Listening to Complex Systems</h1>
+	<body class="ltcs-column scrollable">
+        <header class="ltcs-item-constant ltcs-row foreground-orange background-black">
+            <img class="ltcs-vertical-center scalable-image" src="resources/images/logo.png" alt="Listening to Complex Systems" />
+            <h1 class="ltcs-vertical-center">מקשיבים למערכות מורכבות</h1>
         </header>
-        
-        <section>
-            <nav>
-                <header>
+
+        <section class="ltcs-item-flexible ltcs-row">
+            <nav class="ltcs-item-constant navigation-vertical ltcs-container background-teal">
+                <header class="hidden">
                     <h2 aria-label="Models List">Models</h2>
                 </header>
-                <ul class="models-list">
-                    <li><button class="models-list-item" id="Introduction">Introduction</button></li>
-                    <li><button class="models-list-item" id="Neils">Neils</button></li>
-                    <li><button class="models-list-item" id="GasLab">GasLab</button></li>
-                    <li><button class="models-list-item" id="GasLabMovingPiston">GasLab Moving Piston</button></li>
-                    <li><button class="models-list-item" id="Ising">Ising</button></li>
-                    <li><button class="models-list-item" id="Crystalization">Crystalization</button></li>
-                    <li><button class="models-list-item" id="SimpleKinetics1">Simple Kinetics 1</button></li>
-                    <li><button class="models-list-item" id="SimpleKinetics2">Simple Kinetics 2</button></li>
-                    <li><button class="models-list-item" id="SimpleKinetics3">Simple Kinetics 3</button></li>
-                    <li><button class="models-list-item" id="Fire">Fire</button></li>
-                    <li><button class="models-list-item" id="WolfSheepPredation">Wolf Sheep Predation</button></li>
+                <ul>
+                    <li><button id="Introduction">כללי</button></li>
+                    <li><button id="Neils">מודל החשמל - נילס</button></li>
+                    <li><button id="GasLab">מודל הגז</button></li>
+                    <li><button id="GasLabMovingPiston">מודל הגז עם בוכנה נעה</button></li>
+                    <li><button id="Ising">מודל Ising</button></li>
+                    <li><button id="Crystalization">מודל קריסטליזציה</button></li>
+                    <li><button id="SimpleKinetics1">מודל Simple Kinetics 1</button></li>
+                    <li><button id="SimpleKinetics2">מודל Simple Kinetics 2</button></li>
+                    <li><button id="SimpleKinetics3">מודל Simple Kinetics 3</button></li>
+                    <li><button id="Fire">מודל האש</button></li>
+                    <li><button id="WolfSheepPredation">מודל Wolf Sheep Predation</button></li>
                 </ul>
             </nav>
 
-            <main>
-                <header class="model-header">
-                    <h2 class="model-title"></h2>
+            <main class="ltcs-item-flexible ltcs-first-item ltcs-column">
+                <header class="ltcs-item-constant ltcs-row navigation foreground-white background-teal">
+                    <h2>Introduction</h2>
                 </header>
 
-                <article>
-                	<div class="model-content">
-	                	<header>
-	                		<h3></h3>
-	                	</header>
-	                	<div class="model-content-text">
-	                	</div>
+                <article class="ltcs-item-flexible ltcs-column model-content">
+                    <header class="ltcs-item-constant ltcs-container-horizontal foreground-black background-gray">
+                        <h3>Accessibility</h3>
+                    </header>
+                	<div class="ltcs-item-flexible ltcs-first-item ltcs-row">
+	                	<div class="ltcs-container ltcs-item-flexible model-content-text foreground-black background-gray-light scrollable">
+                        </div>
+                        <aside class="ltcs-item-constant gallery ltcs-column background-gray-light scrollable">
+                        </aside>
                 	</div>
-                	<aside class="gallery">
-                	</aside>
                 </article>
             </main>
         </section>
-        
-        <footer>
-            <table>
-                <tr>
-                    <td><cite class="authors-title">Submitted by:</cite></td>
-                    <td>
-                        <cite class="authors">
-                            <ul>
-                                <li>Ilia Butvinnik</li>
-                                <li>Yair Seeman</li>
-                            </ul>
-                        </cite>
-                    </td>
-                    <td><cite class="authors-title">Directed by:</cite></td>
-                    <td>
-                        <cite class="authors">
-                            <ul>
-                                <li>Dr. Sharona T. Levy</li>
-                            </ul>
-                        </cite>
-                    </td>
-                </tr>
-            </table>
 
-            <span class="netlogo">
-                <a href="https://ccl.northwestern.edu/netlogo/" target="_blank">NetLogo <img src="images/netlogo.png" alt="NetLogo - multi-agent programmable modeling environment" /></a>
-            </span>
+        <footer class="ltcs-item-constant ltcs-row foreground-orange background-black ltcs-container">
+            <cite class="ltcs-item-constant ltcs-vertical-center ltcs-first-item foreground-white">מגישים:</cite>
+            <cite class="ltcs-item-constant ltcs-vertical-center foreground-gray">
+                <ul class="unstyled-list">
+                    <li>איליה בוטביניק</li>
+                    <li>יאיר זימן</li>
+                </ul>
+            </cite>
+            <cite class="ltcs-item-constant ltcs-vertical-center foreground-white">בהנחיית:</cite>
+            <cite class="ltcs-item-constant ltcs-vertical-center foreground-gray">
+                <ul class="unstyled-list">
+                    <li>ד"ר שרונה ט. לוי</li>
+                </ul>
+            </cite>
+            <div class="ltcs-item-flexible"></div>
+            <a class="ltcs-item-constant ltcs-vertical-center" href="https://ccl.northwestern.edu/netlogo/" target="_blank">NetLogo</a>
+            <a class="ltcs-item-constant ltcs-vertical-center" href="https://ccl.northwestern.edu/netlogo/" target="_blank">
+                <img src="resources/images/netlogo.png" alt="NetLogo - multi-agent programmable modeling environment" />
+            </a>
         </footer>
 
-        <div class="gallery-modal">
+        <div class="gallery-modal fade-in is-paused">
   			<span class="close">&times;</span>
   			<div class="modal-content">
-				<img class="modal-image">
+				<img class="modal-image" src="#" alt="#">
   				<div class="model-caption"></div>
 			</div>
         </div>
@@ -93,7 +86,9 @@
         <script async type="text/javascript" src="scripts/main.js"></script>
         <script async type="text/javascript" src="scripts/highlight-nl.min.js"></script> <!-- javascript for highlighting NetLogo code (not ours, public license): https://github.com/NetLogo/highlight-nl -->
         <noscript id="deferred-styles">
-    		<link href="https://fonts.googleapis.com/css?family=Sofia|Roboto" rel="stylesheet">
+    		<link href="https://fonts.googleapis.com/css?family=Sofia" rel="stylesheet">
+            <link href="https://fonts.googleapis.com/css?family=Roboto" rel="stylesheet">
+            <link href="https://fonts.googleapis.com/css?family=Arimo" rel="stylesheet">
     		<link href="styles/main.css" rel="stylesheet" type="text/css">
     		<link href="styles/highlight-nl.css" rel="stylesheet" type="text/css"> <!-- css for highlighting NetLogo code (not ours, public license): https://github.com/NetLogo/highlight-nl -->
         </noscript>
